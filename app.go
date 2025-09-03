@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 
 	"github.com/golang/freetype/truetype"
@@ -52,8 +53,10 @@ var keyW float64 = 25
 var keyH float64 = 60
 var bKeyW float64 = 25 / 1.7
 var bKeyH float64 = keyH / 1.6
-var currentFrame = 0
 var pressedKeys = map[int]bool{}
+var frameAction = map[int]map[int]bool{}
+var fps = 24
+var musicTime float64
 
 var dc = gg.NewContext(int(w), int(h))
 
@@ -75,9 +78,6 @@ func updateFrameKeys(actions map[int]bool) {
 		}
 	}
 }
-
-var frameAction = map[int]map[int]bool{}
-var fps = 24
 
 func setFrameAction(frame int, key int, isPressed bool) {
 	if _, exists := frameAction[frame]; !exists {
@@ -168,7 +168,7 @@ func prepareScreen() {
 	dc.Fill()
 }
 func createFrames() {
-	for i := 0; i < fps*5; i++ {
+	for i := 0; i < fps*int(math.Round(musicTime)); i++ {
 		if v, exists := frameAction[i]; exists {
 			updateFrameKeys(v)
 		}
@@ -177,12 +177,14 @@ func createFrames() {
 		drawKeyboard()
 
 		var frStr string
-		if i+1 > 99 {
+		if i+1 > 999 {
 			frStr = fmt.Sprintf("%d", i+1)
-		} else if i+1 > 9 {
+		} else if i+1 > 99 {
 			frStr = fmt.Sprintf("0%d", i+1)
-		} else {
+		} else if i+1 > 9 {
 			frStr = fmt.Sprintf("00%d", i+1)
+		} else {
+			frStr = fmt.Sprintf("000%d", i+1)
 		}
 		font, err := truetype.Parse(goregular.TTF)
 		if err != nil {
@@ -200,24 +202,39 @@ func createFrames() {
 }
 
 func prepareMidi(midiData MidiData) {
-	var bpm = 60
-	var quarterTimeSeconds = 60 / bpm
+	var bpm = 150
+	var beatTime = 60 / float64(bpm)
+	var quarterNoteTicks = midiData.Meta.QuarterValue
+
 	for _, track := range midiData.Tracks {
+		var trackTimeSeconds = float64(track.Time) / float64(quarterNoteTicks) * float64(beatTime)
+		if trackTimeSeconds > musicTime {
+			musicTime = trackTimeSeconds
+		}
 		for _, event := range track.Events {
-			var quarterNoteTicks = 384
 			var note = event.Note
+			if note == 0 {
+				continue
+			}
+			note = note - 24
 			var onTick = event.OnTick
 			var offTick = event.Offtick
 
-			onTickFrame = fps * onTick
+			var onTickTime = float64(onTick) / float64(quarterNoteTicks) * float64(beatTime)
+			var offTickTime = float64(offTick) / float64(quarterNoteTicks) * float64(beatTime)
 
+			var onTickFrame = math.Floor(onTickTime * float64(fps))
+			var offTickFrame = math.Floor(offTickTime * float64(fps))
+
+			setFrameAction(int(onTickFrame), note, true)
+			setFrameAction(int(offTickFrame), note, false)
 		}
 	}
 }
 
 func main() {
 
-	jsonFile, err := os.Open("midi.json")
+	jsonFile, err := os.Open("midi2.json")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -228,13 +245,13 @@ func main() {
 
 	prepareMidi(midiData)
 
-	setSecondAction(1, 10, true)
-	setSecondAction(2, 12, true)
-	setSecondAction(3, 14, true)
-	setSecondAction(3, 32, true)
-	setSecondAction(3, 12, false)
-	setSecondAction(4, 16, true)
-	setSecondAction(4, 10, false)
+	// setSecondAction(1, 10, true)
+	// setSecondAction(2, 12, true)
+	// setSecondAction(3, 14, true)
+	// setSecondAction(3, 32, true)
+	// setSecondAction(3, 12, false)
+	// setSecondAction(4, 16, true)
+	// setSecondAction(4, 10, false)
 
 	createFrames()
 }

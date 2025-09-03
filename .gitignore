@@ -1,3 +1,5 @@
 frames/*
 !frames/.gitkeep
 midi.json
+*.mp4
+*.mp3
