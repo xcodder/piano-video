@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/golang/freetype/truetype"
 	"golang.org/x/image/font/gofont/goregular"
@@ -56,8 +57,10 @@ var bKeyW float64 = 25 / 1.7
 var bKeyH float64 = keyH / 1.6
 var pressedKeys = map[int]bool{}
 var frameAction = map[int]map[int]bool{}
+var frameBpm = map[int]int{}
 var fps = 24
 var musicTime float64
+var quarterTicks int
 
 var dc = gg.NewContext(int(w), int(h))
 
@@ -80,11 +83,31 @@ func updateFrameKeys(actions map[int]bool) {
 	}
 }
 
+var tickBpm = map[int]int{}
+
+func getBpm(tick int) int {
+	var lastBpmTick = 0
+	for bpmTick := range tickBpm {
+		if tick >= bpmTick && bpmTick >= lastBpmTick {
+			lastBpmTick = bpmTick
+		}
+	}
+	return tickBpm[lastBpmTick]
+}
+
+func setTickBpm(tick int, bpm int) {
+	tickBpm[tick] = bpm
+}
+
 func setFrameAction(frame int, key int, isPressed bool) {
 	if _, exists := frameAction[frame]; !exists {
 		frameAction[frame] = map[int]bool{}
 	}
 	frameAction[frame][key] = isPressed
+}
+
+func setFrameBpmChange(frame int, bpm int) {
+	frameBpm[frame] = bpm
 }
 
 func setSecondAction(sec int, key int, isPressed bool) {
@@ -169,7 +192,8 @@ func prepareScreen() {
 	dc.Fill()
 }
 func createFrames() {
-	musicTime = 10
+	var lastBpm = 0
+	musicTime = 40
 	for i := 0; i < fps*int(math.Round(musicTime)); i++ {
 		if v, exists := frameAction[i]; exists {
 			updateFrameKeys(v)
@@ -197,31 +221,60 @@ func createFrames() {
 
 		dc.SetFontFace(face)
 		dc.DrawString(fmt.Sprintf("FRAME %s", frStr), 30, 30)
+
+		// var onTickTime = float64(onTick) / float64(quarterTicks) * float64(beatTime)
+
+		var timeNow = float64(i) / float64(fps)
+
+		if bpm := frameBpm[i]; bpm > 0 {
+			lastBpm = bpm
+		}
+
+		dc.DrawString(fmt.Sprintf("Time %f", timeNow), 160, 30)
+		dc.DrawString(fmt.Sprintf("Bpm %d", lastBpm), 320, 30)
 		dc.SavePNG(fmt.Sprintf("frames/fr%s.png", frStr))
 
 		dc.Clear()
 	}
 }
 
+func removeFrames() {
+	files, err := filepath.Glob("frames/fr*.png")
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, f := range files {
+		if err := os.Remove(f); err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
 func prepareMidi(midiData MidiData) {
-	var bpm = 150
-	var beatTime = 60 / float64(bpm)
 	var quarterNoteTicks = midiData.Meta.QuarterValue
+	quarterTicks = quarterNoteTicks
 
 	for _, track := range midiData.Tracks {
-		var trackTimeSeconds = float64(track.Time) / float64(quarterNoteTicks) * float64(beatTime)
-		if trackTimeSeconds > musicTime {
-			musicTime = trackTimeSeconds
-		}
 		for _, event := range track.Events {
 			var note = event.Note
 			if note == 0 {
+				if event.Meta.Bpm > 0 {
+					setTickBpm(event.OnTick, event.Meta.Bpm)
+					var onTick = event.OnTick
+					var bpm = getBpm(onTick)
+					var beatTime = 60 / float64(bpm)
+					var onTickTime = float64(onTick) / float64(quarterNoteTicks) * float64(beatTime)
+					var onTickFrame = math.Floor(onTickTime * float64(fps))
+					setFrameBpmChange(int(onTickFrame), event.Meta.Bpm)
+				}
 				continue
 			}
 			note = note - 24
 			var onTick = event.OnTick
 			var offTick = event.Offtick
 
+			var bpm = getBpm(onTick)
+			var beatTime = 60 / float64(bpm)
 			var onTickTime = float64(onTick) / float64(quarterNoteTicks) * float64(beatTime)
 			var offTickTime = float64(offTick) / float64(quarterNoteTicks) * float64(beatTime)
 
@@ -231,6 +284,11 @@ func prepareMidi(midiData MidiData) {
 			setFrameAction(int(onTickFrame), note, true)
 			setFrameAction(int(offTickFrame), note, false)
 		}
+
+		// var trackTimeSeconds = float64(track.Time) / float64(quarterNoteTicks) * float64(beatTime)
+		// if trackTimeSeconds > musicTime {
+		// 	musicTime = trackTimeSeconds
+		// }
 	}
 }
 func convertMidiToMp3(midiFilePath string) string {
@@ -240,10 +298,8 @@ func convertMidiToMp3(midiFilePath string) string {
 		"-o", outputMp3Path,
 	}
 
-	// Create a new command
 	cmd := exec.Command("timidity", timidityCmdArgs...)
 
-	// Run the command and capture any errors
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("Error executing timidity command: %v\n", err)
 		return ""
@@ -260,13 +316,12 @@ func createVideoFromFrames(framesFolder string, audioFilePath string) {
 		"-framerate", fmt.Sprintf("%d", fps),
 		"-i", framesFolder + "/fr%04d.png",
 		"-i", audioFilePath,
-		"video.mp4",
+		"-y",
+		"video2.mp4",
 	}
 
-	// Create a new command
 	cmd := exec.Command("ffmpeg", cmdArgs...)
 
-	// Run the command and capture any errors
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("Error executing FFmpeg command: %v\n", err)
 		return
@@ -276,9 +331,10 @@ func createVideoFromFrames(framesFolder string, audioFilePath string) {
 }
 
 func main() {
-	var midiFile = "minuetg.mid"
+	// var midiFile = "minuetg.mid"
+	var midiFile = "moonlight-sonata.mid"
 
-	jsonFile, err := os.Open("midi2.json")
+	jsonFile, err := os.Open("midi.json")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -294,5 +350,7 @@ func main() {
 	outputMp3Path := convertMidiToMp3(midiFile)
 
 	createVideoFromFrames("frames", outputMp3Path)
+
+	removeFrames()
 
 }
