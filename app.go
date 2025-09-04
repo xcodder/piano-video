@@ -49,7 +49,7 @@ type MidiData struct {
 	Meta     HeaderMeta       `json:"meta"`
 }
 
-var w float64 = 1200
+var w float64 = 1500
 var h float64 = 600
 var keyW float64 = 25
 var keyH float64 = 60
@@ -181,7 +181,7 @@ func drawKeyboardOctave(octaveI int) {
 }
 
 func drawKeyboard() {
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 8; i++ {
 		drawKeyboardOctave(i)
 	}
 }
@@ -193,7 +193,7 @@ func prepareScreen() {
 }
 func createFrames() {
 	var lastBpm = 0
-	musicTime = 40
+	musicTime = 60 * 1
 	for i := 0; i < fps*int(math.Round(musicTime)); i++ {
 		if v, exists := frameAction[i]; exists {
 			updateFrameKeys(v)
@@ -254,6 +254,12 @@ func prepareMidi(midiData MidiData) {
 	var quarterNoteTicks = midiData.Meta.QuarterValue
 	quarterTicks = quarterNoteTicks
 
+	var skipChannels = map[byte]bool{}
+	for channelId, channel := range midiData.Channels {
+		if channel.Patch > 80 {
+			skipChannels[channelId] = true
+		}
+	}
 	for _, track := range midiData.Tracks {
 		for _, event := range track.Events {
 			var note = event.Note
@@ -269,6 +275,11 @@ func prepareMidi(midiData MidiData) {
 				}
 				continue
 			}
+
+			if _, exists := skipChannels[event.Channel]; exists {
+				continue
+			}
+
 			note = note - 24
 			var onTick = event.OnTick
 			var offTick = event.Offtick
@@ -292,9 +303,10 @@ func prepareMidi(midiData MidiData) {
 	}
 }
 func convertMidiToMp3(midiFilePath string) string {
-	var outputMp3Path = midiFilePath + ".mp3"
+	var outputMp3Path = midiFilePath + ".wav"
 	timidityCmdArgs := []string{
 		midiFilePath, "-Ow",
+		"--preserve-silence",
 		"-o", outputMp3Path,
 	}
 
@@ -332,9 +344,9 @@ func createVideoFromFrames(framesFolder string, audioFilePath string) {
 
 func main() {
 	// var midiFile = "minuetg.mid"
-	var midiFile = "moonlight-sonata.mid"
+	var midiFile = "Dance in E Minor.mid"
 
-	jsonFile, err := os.Open("midi.json")
+	jsonFile, err := os.Open("midioutput.json")
 	if err != nil {
 		log.Fatal(err)
 	}
