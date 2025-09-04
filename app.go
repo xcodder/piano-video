@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"os/exec"
 
 	"github.com/golang/freetype/truetype"
 	"golang.org/x/image/font/gofont/goregular"
@@ -168,6 +169,7 @@ func prepareScreen() {
 	dc.Fill()
 }
 func createFrames() {
+	musicTime = 10
 	for i := 0; i < fps*int(math.Round(musicTime)); i++ {
 		if v, exists := frameAction[i]; exists {
 			updateFrameKeys(v)
@@ -231,8 +233,50 @@ func prepareMidi(midiData MidiData) {
 		}
 	}
 }
+func convertMidiToMp3(midiFilePath string) string {
+	var outputMp3Path = midiFilePath + ".mp3"
+	timidityCmdArgs := []string{
+		midiFilePath, "-Ow",
+		"-o", outputMp3Path,
+	}
+
+	// Create a new command
+	cmd := exec.Command("timidity", timidityCmdArgs...)
+
+	// Run the command and capture any errors
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("Error executing timidity command: %v\n", err)
+		return ""
+	}
+
+	fmt.Println("Midi converted to mp3 successfully!")
+
+	return outputMp3Path
+}
+
+func createVideoFromFrames(framesFolder string, audioFilePath string) {
+
+	cmdArgs := []string{
+		"-framerate", fmt.Sprintf("%d", fps),
+		"-i", framesFolder + "/fr%04d.png",
+		"-i", audioFilePath,
+		"video.mp4",
+	}
+
+	// Create a new command
+	cmd := exec.Command("ffmpeg", cmdArgs...)
+
+	// Run the command and capture any errors
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("Error executing FFmpeg command: %v\n", err)
+		return
+	}
+
+	fmt.Println("Video scaled successfully!")
+}
 
 func main() {
+	var midiFile = "minuetg.mid"
 
 	jsonFile, err := os.Open("midi2.json")
 	if err != nil {
@@ -245,13 +289,10 @@ func main() {
 
 	prepareMidi(midiData)
 
-	// setSecondAction(1, 10, true)
-	// setSecondAction(2, 12, true)
-	// setSecondAction(3, 14, true)
-	// setSecondAction(3, 32, true)
-	// setSecondAction(3, 12, false)
-	// setSecondAction(4, 16, true)
-	// setSecondAction(4, 10, false)
-
 	createFrames()
+
+	outputMp3Path := convertMidiToMp3(midiFile)
+
+	createVideoFromFrames("frames", outputMp3Path)
+
 }
