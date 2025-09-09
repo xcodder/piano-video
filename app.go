@@ -1,14 +1,15 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
+	"time"
+	"videos2/midiparser"
 
 	"github.com/golang/freetype/truetype"
 	"golang.org/x/image/font/gofont/goregular"
@@ -43,12 +44,6 @@ type HeaderMeta struct {
 	QuarterValue int `json:"quarterValue"`
 }
 
-type MidiData struct {
-	Tracks   []Track          `json:"tracks"`
-	Channels map[byte]Channel `json:"channels"`
-	Meta     HeaderMeta       `json:"meta"`
-}
-
 var w float64 = 1500
 var h float64 = 600
 var keyW float64 = 25
@@ -56,22 +51,13 @@ var keyH float64 = 60
 var bKeyW float64 = 25 / 1.7
 var bKeyH float64 = keyH / 1.6
 var pressedKeys = map[int]bool{}
+var frameToPressedKeys = map[int]map[int]bool{}
 var frameAction = map[int]map[int]bool{}
 var frameBpm = map[int]int{}
 var fps = 24
-var musicTime float64
+var musicTime float64 = 30
 var quarterTicks int
-
-var dc = gg.NewContext(int(w), int(h))
-
-func changePressedKeys(addPressedKeys []int, unpressKeys []int) {
-	for i := 0; i < len(addPressedKeys); i++ {
-		pressedKeys[addPressedKeys[i]] = true
-	}
-	for i := 0; i < len(unpressKeys); i++ {
-		delete(pressedKeys, unpressKeys[i])
-	}
-}
+var mutex sync.Mutex
 
 func updateFrameKeys(actions map[int]bool) {
 	for m, v := range actions {
@@ -110,12 +96,7 @@ func setFrameBpmChange(frame int, bpm int) {
 	frameBpm[frame] = bpm
 }
 
-func setSecondAction(sec int, key int, isPressed bool) {
-	var frame = fps * sec
-	setFrameAction(frame, key, isPressed)
-}
-
-func drawKeyboardKey(x, y float64, isPressed bool) {
+func drawKeyboardKey(dc *gg.Context, x, y float64, isPressed bool) {
 	dc.DrawRectangle(x, y, keyW, keyH)
 
 	if isPressed {
@@ -130,7 +111,7 @@ func drawKeyboardKey(x, y float64, isPressed bool) {
 
 }
 
-func drawKeyboardBlackKey(x, y float64, isPressed bool) {
+func drawKeyboardBlackKey(dc *gg.Context, x, y float64, isPressed bool) {
 	x = x + keyW/1.5
 	dc.DrawRectangle(x, y, bKeyW, bKeyH)
 
@@ -147,7 +128,7 @@ func drawKeyboardBlackKey(x, y float64, isPressed bool) {
 
 }
 
-func drawKeyboardOctave(octaveI int) {
+func drawKeyboardOctave(dc *gg.Context, octaveI int, pressedKeys map[int]bool) {
 
 	var whiteKeysWithBlackKeys = [][]float64{}
 	var octaveX = float64(octaveI)*keyW*7 + 20
@@ -165,7 +146,7 @@ func drawKeyboardOctave(octaveI int) {
 		keyX := octaveX + keyW*float64(i)
 		keyY := h - keyH - 20
 		var isPressed = pressedKeys[keyNote]
-		drawKeyboardKey(keyX, keyY, isPressed)
+		drawKeyboardKey(dc, keyX, keyY, isPressed)
 
 		if i == 2 || i == 6 {
 			continue
@@ -176,66 +157,92 @@ func drawKeyboardOctave(octaveI int) {
 	for i := 0; i < len(whiteKeysWithBlackKeys); i++ {
 		wk := whiteKeysWithBlackKeys[i]
 		var isPressed = pressedKeys[int(wk[2])+1]
-		drawKeyboardBlackKey(wk[0], wk[1], isPressed)
+		drawKeyboardBlackKey(dc, wk[0], wk[1], isPressed)
 	}
 }
 
-func drawKeyboard() {
+func drawKeyboard(dc *gg.Context, pressedKeys map[int]bool) {
 	for i := 0; i < 8; i++ {
-		drawKeyboardOctave(i)
+		drawKeyboardOctave(dc, i, pressedKeys)
 	}
 }
 
-func prepareScreen() {
+func prepareScreen(dc *gg.Context) {
 	dc.SetRGB(1, 1, 1)
 	dc.DrawRectangle(0, 0, float64(w), float64(h))
 	dc.Fill()
 }
-func createFrames() {
-	var lastBpm = 0
-	musicTime = 60 * 1
+
+func createFramesKeyboard() {
 	for i := 0; i < fps*int(math.Round(musicTime)); i++ {
+		var framePressedKeys = map[int]bool{}
 		if v, exists := frameAction[i]; exists {
 			updateFrameKeys(v)
 		}
-
-		prepareScreen()
-		drawKeyboard()
-
-		var frStr string
-		if i+1 > 999 {
-			frStr = fmt.Sprintf("%d", i+1)
-		} else if i+1 > 99 {
-			frStr = fmt.Sprintf("0%d", i+1)
-		} else if i+1 > 9 {
-			frStr = fmt.Sprintf("00%d", i+1)
-		} else {
-			frStr = fmt.Sprintf("000%d", i+1)
-		}
-		font, err := truetype.Parse(goregular.TTF)
-		if err != nil {
-			log.Fatal(err)
+		for k, v := range pressedKeys {
+			framePressedKeys[k] = v
 		}
 
-		face := truetype.NewFace(font, &truetype.Options{Size: 9})
-
-		dc.SetFontFace(face)
-		dc.DrawString(fmt.Sprintf("FRAME %s", frStr), 30, 30)
-
-		// var onTickTime = float64(onTick) / float64(quarterTicks) * float64(beatTime)
-
-		var timeNow = float64(i) / float64(fps)
-
-		if bpm := frameBpm[i]; bpm > 0 {
-			lastBpm = bpm
-		}
-
-		dc.DrawString(fmt.Sprintf("Time %f", timeNow), 160, 30)
-		dc.DrawString(fmt.Sprintf("Bpm %d", lastBpm), 320, 30)
-		dc.SavePNG(fmt.Sprintf("frames/fr%s.png", frStr))
-
-		dc.Clear()
+		frameToPressedKeys[i] = framePressedKeys
 	}
+}
+
+func createFrameGoroutine(i int, dc *gg.Context) func() {
+	return func() {
+		createFrame(i, dc)
+	}
+}
+func createFrame(i int, dc *gg.Context) {
+	var framePressedKeys = frameToPressedKeys[i]
+	prepareScreen(dc)
+	drawKeyboard(dc, framePressedKeys)
+
+	var frStr string
+	if i+1 > 999 {
+		frStr = fmt.Sprintf("%d", i+1)
+	} else if i+1 > 99 {
+		frStr = fmt.Sprintf("0%d", i+1)
+	} else if i+1 > 9 {
+		frStr = fmt.Sprintf("00%d", i+1)
+	} else {
+		frStr = fmt.Sprintf("000%d", i+1)
+	}
+	font, err := truetype.Parse(goregular.TTF)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	face := truetype.NewFace(font, &truetype.Options{Size: 9})
+
+	dc.SetFontFace(face)
+	dc.DrawString(fmt.Sprintf("FRAME %s", frStr), 30, 30)
+
+	// var onTickTime = float64(onTick) / float64(quarterTicks) * float64(beatTime)
+
+	var timeNow = float64(i) / float64(fps)
+
+	// if bpm := frameBpm[i]; bpm > 0 {
+	// 	lastBpm = bpm
+	// }
+
+	dc.DrawString(fmt.Sprintf("Time %f", timeNow), 160, 30)
+	// dc.DrawString(fmt.Sprintf("Bpm %d", lastBpm), 320, 30)
+
+	t := time.Now()
+	dc.SavePNG(fmt.Sprintf("frames/fr%s.png", frStr))
+	fmt.Printf("Frame: %s - SavePng execution time: %f seconds\n", frStr, time.Since(t).Seconds())
+	dc.Clear()
+}
+func createFrames() {
+	// var lastBpm = 0
+	var wg sync.WaitGroup
+
+	for i := 0; i < fps*int(math.Round(musicTime)); i++ {
+		var dc = gg.NewContext(int(w), int(h))
+		wg.Go(createFrameGoroutine(i, dc))
+	}
+
+	wg.Wait()
 }
 
 func removeFrames() {
@@ -250,7 +257,7 @@ func removeFrames() {
 	}
 }
 
-func prepareMidi(midiData MidiData) {
+func prepareMidi(midiData midiparser.ParsedMidi) {
 	var quarterNoteTicks = midiData.Meta.QuarterValue
 	quarterTicks = quarterNoteTicks
 
@@ -322,14 +329,14 @@ func convertMidiToMp3(midiFilePath string) string {
 	return outputMp3Path
 }
 
-func createVideoFromFrames(framesFolder string, audioFilePath string) {
+func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath string) {
 
 	cmdArgs := []string{
 		"-framerate", fmt.Sprintf("%d", fps),
 		"-i", framesFolder + "/fr%04d.png",
 		"-i", audioFilePath,
 		"-y",
-		"video2.mp4",
+		outputPath,
 	}
 
 	cmd := exec.Command("ffmpeg", cmdArgs...)
@@ -346,23 +353,32 @@ func main() {
 	// var midiFile = "minuetg.mid"
 	var midiFile = "Dance in E Minor.mid"
 
-	jsonFile, err := os.Open("midioutput.json")
+	f, err := os.Open(midiFile)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
+	}
+	defer f.Close()
+
+	executionStartTime := time.Now()
+	parsedMidi, err := midiparser.ParseFile(f)
+	if err != nil {
+		panic(err)
 	}
 
-	var midiData MidiData
-	byteValue, _ := io.ReadAll(jsonFile)
-	json.Unmarshal(byteValue, &midiData)
+	prepareMidi(parsedMidi)
 
-	prepareMidi(midiData)
+	createFramesKeyboard()
 
 	createFrames()
 
 	outputMp3Path := convertMidiToMp3(midiFile)
 
-	createVideoFromFrames("frames", outputMp3Path)
+	createVideoFromFrames("frames", outputMp3Path, "output/"+midiFile+".mp4")
 
-	removeFrames()
+	// removeFrames()
+
+	executionTime := time.Since(executionStartTime)
+
+	fmt.Printf("Execution time: %f seconds\n", executionTime.Seconds())
 
 }
