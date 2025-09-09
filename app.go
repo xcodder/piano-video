@@ -58,11 +58,9 @@ var pressedKeys = map[int]bool{}
 var frameToPressedKeys = map[int]map[int]bool{}
 var frameAction = map[int]map[int]bool{}
 var frameBpm = map[int]int{}
-var fps = 24
+var fps = 60
 
 var musicTime float64
-var quarterTicks int
-var mutex sync.Mutex
 var lastBpm = 0
 
 func updateFrameKeys(actions map[int]bool) {
@@ -76,16 +74,6 @@ func updateFrameKeys(actions map[int]bool) {
 }
 
 var tickBpm = map[int]int{}
-
-func getBpm(tick int) int {
-	var lastBpmTick = 0
-	for bpmTick := range tickBpm {
-		if tick >= bpmTick && bpmTick >= lastBpmTick {
-			lastBpmTick = bpmTick
-		}
-	}
-	return tickBpm[lastBpmTick]
-}
 
 func setTickBpm(tick int, bpm int) {
 	tickBpm[tick] = bpm
@@ -127,26 +115,7 @@ func getTickTime(tick int, quarterNoteTicks int) float64 {
 			accumulatedTime += onTickTime
 		}
 	}
-
 	return accumulatedTime
-
-	// var bpmTicks = map[int]int{}
-	// var lastBpm = 0
-	// // var lastBpmTicks = 0
-	// for bpmTick, bpm := range tickBpm {
-	// 	if bpmTick < tick {
-	// 		if lastBpm > 0 {
-	// 			// lastBpmTicks = bpmTick
-	// 			bpmTicks[lastBpm] = bpmTick
-	// 		}
-	// 		lastBpm = bpm
-	// 	}
-	// }
-
-	// fmt.Println(bpmTicks)
-	// for i, v := range bpmTicks {
-	// 	fmt.Println(i, v)
-	// }
 }
 
 func setFrameAction(frame int, key int, isPressed bool) {
@@ -286,12 +255,8 @@ func createFrame(i int, dc *gg.Context) {
 
 	var timeNow = float64(i) / float64(fps)
 
-	if bpm := frameBpm[i]; bpm > 0 {
-		lastBpm = bpm
-	}
-
 	dc.DrawString(fmt.Sprintf("Time %f", timeNow), 160, 30)
-	dc.DrawString(fmt.Sprintf("Bpm %d", lastBpm), 320, 30)
+	// dc.DrawString(fmt.Sprintf("Bpm %d", lastBpm), 320, 30)
 
 	dc.SavePNG(fmt.Sprintf("frames/fr%s.png", frStr))
 }
@@ -328,7 +293,6 @@ func removeAudioFile(filePath string) {
 
 func prepareMidi(midiData midiparser.ParsedMidi) {
 	var quarterNoteTicks = midiData.Meta.QuarterValue
-	quarterTicks = quarterNoteTicks
 
 	var skipChannels = map[byte]bool{}
 	for channelId, channel := range midiData.Channels {
@@ -342,16 +306,29 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 			if note == 0 {
 				if event.Meta.Bpm > 0 {
 					setTickBpm(event.OnTick, event.Meta.Bpm)
+				}
+			}
+		}
+	}
+
+	for _, track := range midiData.Tracks {
+		for _, event := range track.Events {
+			var note = event.Note
+			if note == 0 {
+				if event.Meta.Bpm > 0 {
 					var onTick = event.OnTick
-					// var bpm = getBpm(onTick)
 					var onTickTime = getTickTime(onTick, quarterNoteTicks)
-					// var beatTime = 60 / float64(bpm)
-					// var totalBeats = float64(onTick) / float64(quarterNoteTicks)
-					// var onTickTime = float64(onTick) / float64(quarterNoteTicks) * float64(beatTime)
-					// fmt.Println(bpm, onTick, event.Meta.Bpm, quarterNoteTicks)
-					var onTickFrame = math.Floor(onTickTime * float64(fps))
+					var onTickFrame = math.Round(onTickTime * float64(fps))
 					setFrameBpmChange(int(onTickFrame), event.Meta.Bpm)
 				}
+			}
+		}
+	}
+
+	for _, track := range midiData.Tracks {
+		for _, event := range track.Events {
+			var note = event.Note
+			if note == 0 {
 				continue
 			}
 
@@ -377,7 +354,7 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 		if trackTimeSeconds > musicTime {
 			musicTime = trackTimeSeconds
 		}
-		musicTime = 120
+		musicTime = 30
 	}
 }
 func convertMidiToMp3(midiFilePath string) string {
@@ -406,7 +383,7 @@ func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath
 		"-framerate", fmt.Sprintf("%d", fps),
 		"-i", framesFolder + "/fr%04d.png",
 		"-i", audioFilePath,
-		"-preset", "veryslow",
+		"-preset", "veryfast",
 		"-c:v", "libx264",
 		"-pix_fmt", "yuv420p",
 		"-vcodec", "libx264",
@@ -433,7 +410,7 @@ func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath
 func main() {
 	// var midiFile = "minuetg.mid"
 	// var midiFile = "Dance in E Minor - test_5_min.mid"
-	var midiFile = "Hungarian Rhapsody No. 2 in C# Minor.mid"
+	var midiFile = "Bach JS Toccata Fuge D Minor.mid"
 
 	removeFrames()
 
@@ -463,7 +440,7 @@ func main() {
 	outputMp3Path := convertMidiToMp3(midiFile)
 	fmt.Println("E3 ", time.Since(executionStartTime).Seconds())
 
-	createVideoFromFrames("frames", outputMp3Path, "output/"+midiFile+".mp4")
+	createVideoFromFrames("frames", outputMp3Path, "output/"+midiFile+"."+fmt.Sprintf("%d", fps)+".mp4")
 
 	fmt.Println("E4 ", time.Since(executionStartTime).Seconds())
 
