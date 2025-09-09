@@ -59,7 +59,7 @@ var frameAction = map[int]map[int]bool{}
 var frameBpm = map[int]int{}
 var fps = 24
 
-var musicTime float64 = 60 * 2.5
+var musicTime float64 = 60 * 6
 var quarterTicks int
 var mutex sync.Mutex
 var lastBpm = 0
@@ -251,8 +251,9 @@ func createFramesKeyboard() {
 	}
 }
 
-func createFrameGoroutine(i int, dc *gg.Context) func() {
+func createFrameGoroutine(i int) func() {
 	return func() {
+		var dc = gg.NewContext(int(w), int(h))
 		createFrame(i, dc)
 	}
 }
@@ -293,29 +294,32 @@ func createFrame(i int, dc *gg.Context) {
 	dc.DrawString(fmt.Sprintf("Bpm %d", lastBpm), 320, 30)
 
 	dc.SavePNG(fmt.Sprintf("frames/fr%s.png", frStr))
-	dc.Clear()
 }
 func createFrames() {
 	var wg sync.WaitGroup
 
 	for i := 0; i < fps*int(math.Round(musicTime)); i++ {
-		var dc = gg.NewContext(int(w), int(h))
-		wg.Go(createFrameGoroutine(i, dc))
+		wg.Go(createFrameGoroutine(i))
 	}
 
 	wg.Wait()
 }
 
 func removeFrames() {
+	var wg sync.WaitGroup
 	files, err := filepath.Glob("frames/fr*.png")
 	if err != nil {
 		log.Fatal(err)
 	}
 	for _, f := range files {
-		if err := os.Remove(f); err != nil {
-			log.Fatal(err)
-		}
+		wg.Go(func() {
+			if err := os.Remove(f); err != nil {
+				log.Fatal(err)
+			}
+		})
 	}
+
+	wg.Wait()
 }
 
 func removeAudioFile(filePath string) {
@@ -401,9 +405,17 @@ func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath
 		"-framerate", fmt.Sprintf("%d", fps),
 		"-i", framesFolder + "/fr%04d.png",
 		"-i", audioFilePath,
+		"-preset", "ultrafast",
+		"-c:v", "libx264",
+		"-pix_fmt", "yuv420p",
+		"-vcodec", "libx264",
 		"-y",
 		outputPath,
 	}
+
+	// for _, v := range cmdArgs {
+	// 	fmt.Printf("%s ", v)
+	// }
 
 	cmd := exec.Command("ffmpeg", cmdArgs...)
 
@@ -417,7 +429,7 @@ func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath
 
 func main() {
 	// var midiFile = "minuetg.mid"
-	var midiFile = "Dance in E Minor.mid"
+	var midiFile = "Dance in E Minor - test_5_min.mid"
 
 	f, err := os.Open(midiFile)
 	if err != nil {
@@ -434,21 +446,25 @@ func main() {
 	rankingsJSON, _ := json.Marshal(parsedMidi)
 	os.WriteFile("./midioutput.json", rankingsJSON, 0644)
 
+	fmt.Println("E1 ", time.Since(executionStartTime).Seconds())
 	prepareMidi(parsedMidi)
-
-	for i, v := range frameBpm {
-		fmt.Printf("%f - %d\n", float64(i)/float64(fps), v)
-	}
 
 	createFramesKeyboard()
 
+	fmt.Println("E2 ", time.Since(executionStartTime).Seconds())
 	createFrames()
 
 	outputMp3Path := convertMidiToMp3(midiFile)
+	fmt.Println("E3 ", time.Since(executionStartTime).Seconds())
 
 	createVideoFromFrames("frames", outputMp3Path, "output/"+midiFile+".mp4")
 
+	fmt.Println("E4 ", time.Since(executionStartTime).Seconds())
+
 	removeFrames()
+
+	fmt.Println("E5 ", time.Since(executionStartTime).Seconds())
+
 	removeAudioFile(outputMp3Path)
 
 	executionTime := time.Since(executionStartTime)
