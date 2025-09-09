@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"sort"
 	"sync"
 	"time"
 	"videos2/midiparser"
@@ -55,9 +58,11 @@ var frameToPressedKeys = map[int]map[int]bool{}
 var frameAction = map[int]map[int]bool{}
 var frameBpm = map[int]int{}
 var fps = 24
-var musicTime float64 = 30
+
+var musicTime float64 = 60 * 2.5
 var quarterTicks int
 var mutex sync.Mutex
+var lastBpm = 0
 
 func updateFrameKeys(actions map[int]bool) {
 	for m, v := range actions {
@@ -83,6 +88,65 @@ func getBpm(tick int) int {
 
 func setTickBpm(tick int, bpm int) {
 	tickBpm[tick] = bpm
+}
+
+//
+//  3800
+// map[int]int {
+// 0: 120,
+// 3600: 160,
+// }
+
+// quarterTicks 100
+
+func getTickTime(tick int) float64 {
+
+	var orderedBpmTicks = []int{}
+
+	for bpmTick := range tickBpm {
+		orderedBpmTicks = append(orderedBpmTicks, bpmTick)
+	}
+
+	sort.Ints(orderedBpmTicks)
+	slices.Reverse(orderedBpmTicks)
+
+	currentTick := tick
+
+	var accumulatedTime float64 = 0
+	var quarterNoteTicks = 480
+	for i := range orderedBpmTicks {
+		v := orderedBpmTicks[i]
+
+		if tick > v {
+			var bpmTicks = currentTick - v
+			currentTick = v
+			var tBpm = tickBpm[v]
+
+			var beatTime = 60 / float64(tBpm)
+			var onTickTime = float64(bpmTicks) / float64(quarterNoteTicks) * float64(beatTime)
+			accumulatedTime += onTickTime
+		}
+	}
+
+	return accumulatedTime
+
+	// var bpmTicks = map[int]int{}
+	// var lastBpm = 0
+	// // var lastBpmTicks = 0
+	// for bpmTick, bpm := range tickBpm {
+	// 	if bpmTick < tick {
+	// 		if lastBpm > 0 {
+	// 			// lastBpmTicks = bpmTick
+	// 			bpmTicks[lastBpm] = bpmTick
+	// 		}
+	// 		lastBpm = bpm
+	// 	}
+	// }
+
+	// fmt.Println(bpmTicks)
+	// for i, v := range bpmTicks {
+	// 	fmt.Println(i, v)
+	// }
 }
 
 func setFrameAction(frame int, key int, isPressed bool) {
@@ -221,20 +285,17 @@ func createFrame(i int, dc *gg.Context) {
 
 	var timeNow = float64(i) / float64(fps)
 
-	// if bpm := frameBpm[i]; bpm > 0 {
-	// 	lastBpm = bpm
-	// }
+	if bpm := frameBpm[i]; bpm > 0 {
+		lastBpm = bpm
+	}
 
 	dc.DrawString(fmt.Sprintf("Time %f", timeNow), 160, 30)
-	// dc.DrawString(fmt.Sprintf("Bpm %d", lastBpm), 320, 30)
+	dc.DrawString(fmt.Sprintf("Bpm %d", lastBpm), 320, 30)
 
-	t := time.Now()
 	dc.SavePNG(fmt.Sprintf("frames/fr%s.png", frStr))
-	fmt.Printf("Frame: %s - SavePng execution time: %f seconds\n", frStr, time.Since(t).Seconds())
 	dc.Clear()
 }
 func createFrames() {
-	// var lastBpm = 0
 	var wg sync.WaitGroup
 
 	for i := 0; i < fps*int(math.Round(musicTime)); i++ {
@@ -257,6 +318,10 @@ func removeFrames() {
 	}
 }
 
+func removeAudioFile(filePath string) {
+	os.Remove(filePath)
+}
+
 func prepareMidi(midiData midiparser.ParsedMidi) {
 	var quarterNoteTicks = midiData.Meta.QuarterValue
 	quarterTicks = quarterNoteTicks
@@ -274,9 +339,12 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 				if event.Meta.Bpm > 0 {
 					setTickBpm(event.OnTick, event.Meta.Bpm)
 					var onTick = event.OnTick
-					var bpm = getBpm(onTick)
-					var beatTime = 60 / float64(bpm)
-					var onTickTime = float64(onTick) / float64(quarterNoteTicks) * float64(beatTime)
+					// var bpm = getBpm(onTick)
+					var onTickTime = getTickTime(onTick)
+					// var beatTime = 60 / float64(bpm)
+					// var totalBeats = float64(onTick) / float64(quarterNoteTicks)
+					// var onTickTime = float64(onTick) / float64(quarterNoteTicks) * float64(beatTime)
+					// fmt.Println(bpm, onTick, event.Meta.Bpm, quarterNoteTicks)
 					var onTickFrame = math.Floor(onTickTime * float64(fps))
 					setFrameBpmChange(int(onTickFrame), event.Meta.Bpm)
 				}
@@ -291,10 +359,8 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 			var onTick = event.OnTick
 			var offTick = event.Offtick
 
-			var bpm = getBpm(onTick)
-			var beatTime = 60 / float64(bpm)
-			var onTickTime = float64(onTick) / float64(quarterNoteTicks) * float64(beatTime)
-			var offTickTime = float64(offTick) / float64(quarterNoteTicks) * float64(beatTime)
+			var onTickTime = getTickTime(onTick)
+			var offTickTime = getTickTime(offTick)
 
 			var onTickFrame = math.Floor(onTickTime * float64(fps))
 			var offTickFrame = math.Floor(offTickTime * float64(fps))
@@ -365,7 +431,14 @@ func main() {
 		panic(err)
 	}
 
+	rankingsJSON, _ := json.Marshal(parsedMidi)
+	os.WriteFile("./midioutput.json", rankingsJSON, 0644)
+
 	prepareMidi(parsedMidi)
+
+	for i, v := range frameBpm {
+		fmt.Printf("%f - %d\n", float64(i)/float64(fps), v)
+	}
 
 	createFramesKeyboard()
 
@@ -375,7 +448,8 @@ func main() {
 
 	createVideoFromFrames("frames", outputMp3Path, "output/"+midiFile+".mp4")
 
-	// removeFrames()
+	removeFrames()
+	removeAudioFile(outputMp3Path)
 
 	executionTime := time.Since(executionStartTime)
 

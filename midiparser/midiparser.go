@@ -15,18 +15,7 @@ func readMoreBytes(bytes int) func(f *os.File) int {
 		return bytes
 	}
 }
-func readTexts(f *os.File) int {
-	len := readBytes(f, 1)[0]
-	readBytes(f, int(len))
-	return int(len) + 1
-}
-func instrument(f *os.File) int {
-	len := readBytes(f, 1)[0]
-	fmt.Println("Here")
-	instrumentName := bytesToString(readBytes(f, int(len)))
-	allChannels[defaultMidiChannel] = Channel{Instrument: instrumentName}
-	return int(len)
-}
+
 func bytesToString(bts []byte) string {
 	str := ""
 	for _, s := range bts {
@@ -34,8 +23,6 @@ func bytesToString(bts []byte) string {
 	}
 	return str
 }
-
-var defaultMidiChannel byte
 
 type Meta struct {
 	Bpm int `json:"bpm"`
@@ -73,8 +60,7 @@ func offset(f *os.File) int {
 }
 func midiChannelPrefix(f *os.File) int {
 	readBytes(f, 1) // irrelevant byte
-	channel := readBytes(f, 1)[0]
-	defaultMidiChannel = channel
+	readBytes(f, 1)
 	return 2
 }
 func midiPort(f *os.File) int {
@@ -197,16 +183,6 @@ var events = map[byte]func(f *os.File, channel byte) int{
 }
 var buffer = make([]byte, 2020)
 
-const file = "Dance in E Minor.mid"
-
-func printBytes(bs []byte) {
-	for _, c := range bs {
-		fmt.Printf("%08b (%02x)\t", c, c)
-	}
-}
-func toHex(b byte) string {
-	return fmt.Sprintf("%02x", b)
-}
 func readMThd(f *os.File) {
 	readBytes(f, 8)
 	trackFileFormat := bytesToInt(readBytes(f, 2))
