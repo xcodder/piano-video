@@ -366,7 +366,7 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 			var onTickTime = getTickTime(onTick, quarterNoteTicks)
 			var offTickTime = getTickTime(offTick, quarterNoteTicks)
 
-			var onTickFrame = math.Floor(onTickTime * float64(fps))
+			var onTickFrame = math.Ceil(onTickTime * float64(fps))
 			var offTickFrame = math.Floor(offTickTime * float64(fps))
 
 			setFrameAction(int(onTickFrame), note, true)
@@ -377,6 +377,7 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 		if trackTimeSeconds > musicTime {
 			musicTime = trackTimeSeconds
 		}
+		musicTime = 120
 	}
 }
 func convertMidiToMp3(midiFilePath string) string {
@@ -405,11 +406,13 @@ func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath
 		"-framerate", fmt.Sprintf("%d", fps),
 		"-i", framesFolder + "/fr%04d.png",
 		"-i", audioFilePath,
-		"-preset", "ultrafast",
+		"-preset", "veryslow",
 		"-c:v", "libx264",
 		"-pix_fmt", "yuv420p",
 		"-vcodec", "libx264",
+		"-tune", "animation",
 		"-y",
+		"-t", fmt.Sprintf("%f", musicTime),
 		outputPath,
 	}
 
@@ -428,8 +431,11 @@ func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath
 }
 
 func main() {
-	var midiFile = "minuetg.mid"
+	// var midiFile = "minuetg.mid"
 	// var midiFile = "Dance in E Minor - test_5_min.mid"
+	var midiFile = "Hungarian Rhapsody No. 2 in C# Minor.mid"
+
+	removeFrames()
 
 	f, err := os.Open(midiFile)
 	if err != nil {
@@ -461,7 +467,7 @@ func main() {
 
 	fmt.Println("E4 ", time.Since(executionStartTime).Seconds())
 
-	removeFrames()
+	// removeFrames()
 
 	fmt.Println("E5 ", time.Since(executionStartTime).Seconds())
 
