@@ -220,26 +220,23 @@ func createFramesKeyboard() {
 	}
 }
 
-func createFrameGoroutine(i int) func() {
-	return func() {
-		var dc = gg.NewContext(int(w), int(h))
-		createFrame(i, dc)
-	}
-}
-func createFrame(i int, dc *gg.Context) {
+func createFrame(i int) {
+	var dc = gg.NewContext(int(w), int(h))
 	var framePressedKeys = frameToPressedKeys[i]
 	prepareScreen(dc)
 	drawKeyboard(dc, framePressedKeys)
 
 	var frStr string
-	if i+1 > 999 {
+	if i+1 > 9999 {
 		frStr = fmt.Sprintf("%d", i+1)
-	} else if i+1 > 99 {
+	} else if i+1 > 999 {
 		frStr = fmt.Sprintf("0%d", i+1)
-	} else if i+1 > 9 {
+	} else if i+1 > 99 {
 		frStr = fmt.Sprintf("00%d", i+1)
-	} else {
+	} else if i+1 > 9 {
 		frStr = fmt.Sprintf("000%d", i+1)
+	} else {
+		frStr = fmt.Sprintf("0000%d", i+1)
 	}
 	font, err := truetype.Parse(goregular.TTF)
 	if err != nil {
@@ -261,10 +258,19 @@ func createFrame(i int, dc *gg.Context) {
 	dc.SavePNG(fmt.Sprintf("frames/fr%s.png", frStr))
 }
 func createFrames() {
+
+	sem := make(chan struct{}, 50)
+
 	var wg sync.WaitGroup
 
 	for i := 0; i < fps*int(math.Round(musicTime)); i++ {
-		wg.Go(createFrameGoroutine(i))
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer wg.Done()
+			createFrame(i)
+			<-sem
+		}(i)
 	}
 
 	wg.Wait()
@@ -354,7 +360,6 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 		if trackTimeSeconds > musicTime {
 			musicTime = trackTimeSeconds
 		}
-		musicTime = 90
 	}
 }
 func convertMidiToMp3(midiFilePath string) string {
@@ -377,11 +382,11 @@ func convertMidiToMp3(midiFilePath string) string {
 	return outputMp3Path
 }
 
-func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath string) {
+func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath string) error {
 
 	cmdArgs := []string{
 		"-framerate", fmt.Sprintf("%d", fps),
-		"-i", framesFolder + "/fr%04d.png",
+		"-i", framesFolder + "/fr%05d.png",
 		"-i", audioFilePath,
 		"-preset", "veryfast",
 		"-c:v", "libx264",
@@ -393,18 +398,19 @@ func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath
 		outputPath,
 	}
 
-	// for _, v := range cmdArgs {
-	// 	fmt.Printf("%s ", v)
-	// }
-
 	cmd := exec.Command("ffmpeg", cmdArgs...)
 
 	if err := cmd.Run(); err != nil {
+		fmt.Printf("ffmpeg ")
+		for _, v := range cmdArgs {
+			fmt.Printf("%s ", v)
+		}
+
 		fmt.Printf("Error executing FFmpeg command: %v\n", err)
-		return
+		return err
 	}
 
-	fmt.Println("Video scaled successfully!")
+	return nil
 }
 
 func Generate() {
@@ -440,7 +446,10 @@ func Generate() {
 	outputMp3Path := convertMidiToMp3(midiFile)
 	fmt.Println("E3 ", time.Since(executionStartTime).Seconds())
 
-	createVideoFromFrames("frames", outputMp3Path, "output/"+midiFile+"."+fmt.Sprintf("%d", fps)+".mp4")
+	err = createVideoFromFrames("frames", outputMp3Path, "output/"+midiFile+"."+fmt.Sprintf("%d", fps)+".mp4")
+	if err != nil {
+		fmt.Println("Error: ffmpeg could not create video")
+	}
 
 	fmt.Println("E4 ", time.Since(executionStartTime).Seconds())
 
