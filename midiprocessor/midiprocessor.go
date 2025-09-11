@@ -61,7 +61,9 @@ var frameBpm = map[int]float64{}
 var fps = 60
 
 var musicTime float64
-var lastBpm = 0
+var startDelaySec float64 = 3
+
+const DEBUG = false
 
 func updateFrameKeys(actions map[int]bool) {
 	for m, v := range actions {
@@ -115,7 +117,8 @@ func getTickTime(tick int, quarterNoteTicks int) float64 {
 			accumulatedTime += onTickTime
 		}
 	}
-	return accumulatedTime
+
+	return accumulatedTime + startDelaySec
 }
 
 func setFrameAction(frame int, key int, isPressed bool) {
@@ -246,13 +249,15 @@ func createFrame(i int) {
 	face := truetype.NewFace(font, &truetype.Options{Size: 9})
 
 	dc.SetFontFace(face)
-	dc.DrawString(fmt.Sprintf("FRAME %s", frStr), 30, 30)
+	if DEBUG == true {
+		dc.DrawString(fmt.Sprintf("FRAME %s", frStr), 30, 30)
+	}
 
 	// var onTickTime = float64(onTick) / float64(quarterTicks) * float64(beatTime)
 
 	var timeNow = float64(i) / float64(fps)
 
-	dc.DrawString(fmt.Sprintf("Time %f", timeNow), 160, 30)
+	dc.DrawString(fmt.Sprintf("Time %.2f", timeNow), 160, 30)
 	// dc.DrawString(fmt.Sprintf("Bpm %d", lastBpm), 320, 30)
 
 	dc.SavePNG(fmt.Sprintf("frames/fr%s.png", frStr))
@@ -360,6 +365,8 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 		if trackTimeSeconds > musicTime {
 			musicTime = trackTimeSeconds
 		}
+
+		musicTime = 50
 	}
 }
 func convertMidiToMp3(midiFilePath string) string {
@@ -387,7 +394,9 @@ func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath
 	cmdArgs := []string{
 		"-framerate", fmt.Sprintf("%d", fps),
 		"-i", framesFolder + "/fr%05d.png",
+		"-itsoffset", fmt.Sprintf("%fs", startDelaySec),
 		"-i", audioFilePath,
+		"-map", "0:v", "-map", "1:a",
 		"-preset", "veryfast",
 		"-c:v", "libx264",
 		"-pix_fmt", "yuv420p",
@@ -457,7 +466,7 @@ func Generate() {
 
 	fmt.Println("E5 ", time.Since(executionStartTime).Seconds())
 
-	removeAudioFile(outputMp3Path)
+	// removeAudioFile(outputMp3Path)
 
 	executionTime := time.Since(executionStartTime)
 
