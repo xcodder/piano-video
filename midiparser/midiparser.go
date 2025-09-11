@@ -25,7 +25,7 @@ func bytesToString(bts []byte) string {
 }
 
 type Meta struct {
-	Bpm int `json:"bpm"`
+	Bpm float64 `json:"bpm"`
 }
 
 func readText() func(f *os.File) int {
@@ -39,7 +39,7 @@ func readText() func(f *os.File) int {
 }
 func setBpm(f *os.File) int {
 	readBytes(f, 1) // irrelevant byte
-	bpm := bytesToInt(readBytes(f, 3))
+	bpm := float64(bytesToInt(readBytes(f, 3)))
 	bpm = 60000000 / bpm
 	// fmt.Println("BPM value: ", bpm, " On track: ", trackIndex)
 	allTracks[trackIndex].Events = append(allTracks[trackIndex].Events, Event{OnTick: allTracks[trackIndex].Time, Meta: Meta{Bpm: bpm}})
