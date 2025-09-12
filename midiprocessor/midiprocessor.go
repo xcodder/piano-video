@@ -336,7 +336,7 @@ func drawCNotesNotation(dc *gg.Context) {
 }
 
 func prepareScreen(dc *gg.Context) {
-	dc.SetRGB(0.18, 0.18, 0.18)
+	dc.SetRGB(0.17, 0.17, 0.17)
 	dc.DrawRectangle(0, 0, float64(w), float64(h))
 	dc.Fill()
 }
@@ -355,8 +355,7 @@ func createFramesKeyboard() {
 	}
 }
 
-func createFrame(i int) {
-	var dc = gg.NewContext(int(w), int(h))
+func createFrame(dc *gg.Context, i int) {
 	var framePressedKeys = frameToPressedKeys[i]
 	var frameFallingNotes = frameFallingNotes[i]
 	prepareScreen(dc)
@@ -394,26 +393,35 @@ func createFrame(i int) {
 }
 func createFrames() {
 
-	const maxWorkers = 20
+	const maxWorkers = 50
 	sem := make(chan struct{}, maxWorkers)
+	contexts := make(chan *gg.Context, maxWorkers)
 
 	var wg sync.WaitGroup
 
 	var totalFrames = fps * int(math.Round(musicTime))
 	var finishedFrames atomic.Uint64
 	var startTime = time.Now()
+
+	for i := 0; i < maxWorkers; i++ {
+		dc := gg.NewContext(int(w), int(h))
+		contexts <- dc
+	}
+
 	for i := 0; i < totalFrames; i++ {
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(i int) {
+		dc := <-contexts
+		go func(dc *gg.Context, i int) {
 			defer wg.Done()
-			createFrame(i)
+			createFrame(dc, i)
 			f := finishedFrames.Add(1)
-			if int(f)%(fps*5) == 0 {
+			if int(f)%(fps*10) == 0 {
 				fmt.Printf("Finished frames: %d/%d\tavg time per frame: %.4f\n", f, totalFrames, time.Since(startTime).Seconds()/float64(f))
 			}
 			<-sem
-		}(i)
+			contexts <- dc
+		}(dc, i)
 	}
 
 	wg.Wait()
