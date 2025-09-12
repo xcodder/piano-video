@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 	"videos2/midiparser"
 
@@ -55,9 +56,10 @@ type FallingNote struct {
 
 var w float64 = 1920
 var h float64 = 1080
-var whiteKeysShown = 7 * 8
+var octavesDisplayed = 7
+var whiteKeysShown = 7 * octavesDisplayed
 var keyW float64 = (w - 40) / float64(whiteKeysShown)
-var keyH float64 = keyW * 2.5
+var keyH float64 = keyW * 6
 var bKeyW float64 = keyW / 1.7
 var bKeyH float64 = keyH / 1.6
 var pressedKeys = map[int]bool{}
@@ -241,7 +243,7 @@ func drawKeyboardOctave(dc *gg.Context, octaveI int, pressedKeys map[int]bool) {
 }
 
 func drawKeyboard(dc *gg.Context, pressedKeys map[int]bool) {
-	for i := 0; i < 8; i++ {
+	for i := 0; i < octavesDisplayed; i++ {
 		drawKeyboardOctave(dc, i, pressedKeys)
 	}
 }
@@ -298,7 +300,7 @@ func drawFallingNotes(dc *gg.Context, fallingNotes []FallingNote) {
 }
 
 func drawScreenAxes(dc *gg.Context, frame int) {
-	for i := 0; i < 8; i++ {
+	for i := 0; i < octavesDisplayed; i++ {
 		var x = getNoteXPosition(getNoteByKeyAndOctave(0, i))
 		dc.SetRGBA(1, 1, 1, 0.3)
 		dc.SetLineWidth(0.5)
@@ -310,6 +312,26 @@ func drawScreenAxes(dc *gg.Context, frame int) {
 		dc.SetLineWidth(0.5)
 		dc.DrawLine(x2, 0, x2, h)
 		dc.Stroke()
+	}
+}
+
+func drawCNotesNotation(dc *gg.Context) {
+	font, err := truetype.Parse(goregular.TTF)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	face := truetype.NewFace(font, &truetype.Options{Size: 16})
+
+	dc.SetFontFace(face)
+	for i := 0; i < octavesDisplayed; i++ {
+		if i == 3 {
+			dc.SetRGBA(0, 0, 0, 0.8)
+		} else {
+			dc.SetRGBA(0, 0, 0, 0.5)
+		}
+		var x = getNoteXPosition(getNoteByKeyAndOctave(0, i))
+		dc.DrawString(fmt.Sprintf("C%d", i+1), (x + 7), h-10)
 	}
 }
 
@@ -340,6 +362,7 @@ func createFrame(i int) {
 	prepareScreen(dc)
 	drawScreenAxes(dc, i)
 	drawKeyboard(dc, framePressedKeys)
+	drawCNotesNotation(dc)
 	drawFallingNotes(dc, frameFallingNotes)
 
 	var frStr string
@@ -354,37 +377,41 @@ func createFrame(i int) {
 	} else {
 		frStr = fmt.Sprintf("0000%d", i+1)
 	}
-	font, err := truetype.Parse(goregular.TTF)
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	face := truetype.NewFace(font, &truetype.Options{Size: 9})
-
-	dc.SetFontFace(face)
 	if DEBUG == true {
+		font, err := truetype.Parse(goregular.TTF)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		face := truetype.NewFace(font, &truetype.Options{Size: 9})
+
+		dc.SetFontFace(face)
 		dc.DrawString(fmt.Sprintf("FRAME %s", frStr), 30, 30)
 	}
-
-	// var timeNow = float64(i) / float64(fps)
-
-	// dc.DrawString(fmt.Sprintf("Time %.2f", timeNow), 160, 30)
-	// dc.DrawString(fmt.Sprintf("Bpm %d", lastBpm), 320, 30)
 
 	dc.SavePNG(fmt.Sprintf("frames/fr%s.png", frStr))
 }
 func createFrames() {
 
-	sem := make(chan struct{}, 50)
+	const maxWorkers = 20
+	sem := make(chan struct{}, maxWorkers)
 
 	var wg sync.WaitGroup
 
-	for i := 0; i < fps*int(math.Round(musicTime)); i++ {
+	var totalFrames = fps * int(math.Round(musicTime))
+	var finishedFrames atomic.Uint64
+	var startTime = time.Now()
+	for i := 0; i < totalFrames; i++ {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(i int) {
 			defer wg.Done()
 			createFrame(i)
+			f := finishedFrames.Add(1)
+			if int(f)%(fps*5) == 0 {
+				fmt.Printf("Finished frames: %d/%d\tavg time per frame: %.4f\n", f, totalFrames, time.Since(startTime).Seconds()/float64(f))
+			}
 			<-sem
 		}(i)
 	}
@@ -475,8 +502,6 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 		if trackTimeSeconds > musicTime {
 			musicTime = trackTimeSeconds
 		}
-
-		musicTime = 50
 	}
 }
 
