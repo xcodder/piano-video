@@ -47,8 +47,14 @@ type HeaderMeta struct {
 	QuarterValue int `json:"quarterValue"`
 }
 
-var w float64 = 1400
-var h float64 = 600
+type FallingNote struct {
+	Note   int
+	Y      float64
+	Height float64
+}
+
+var w float64 = 1920
+var h float64 = 1080
 var whiteKeysShown = 7 * 8
 var keyW float64 = (w - 40) / float64(whiteKeysShown)
 var keyH float64 = keyW * 2.5
@@ -57,9 +63,10 @@ var bKeyH float64 = keyH / 1.6
 var pressedKeys = map[int]bool{}
 var frameToPressedKeys = map[int]map[int]bool{}
 var frameAction = map[int]map[int]bool{}
+var frameFallingNotes = map[int][]FallingNote{}
 var frameBpm = map[int]float64{}
 var fps = 60
-
+var keyY = h - keyH
 var musicTime float64
 var startDelaySec float64 = 3
 
@@ -128,9 +135,45 @@ func setFrameAction(frame int, key int, isPressed bool) {
 	frameAction[frame][key] = isPressed
 }
 
+func setNoteAction(key int, onTickFrame, offTickFrame int) {
+	setFrameAction(onTickFrame, key, true)
+	setFrameAction(offTickFrame, key, false)
+
+	var startRainingNoteFrame = onTickFrame - (3 * fps)
+
+	for i := startRainingNoteFrame; i < offTickFrame; i++ {
+		var maxRange = keyY
+		var rangePerFrame = float64(maxRange) / float64(3*fps)
+		var relativeFrame = i - startRainingNoteFrame
+
+		if _, exists := frameFallingNotes[i]; !exists {
+			frameFallingNotes[i] = []FallingNote{}
+		}
+
+		var noteFullHeight float64 = (float64(offTickFrame) - float64(onTickFrame)) * rangePerFrame
+		var noteY = (rangePerFrame * float64(relativeFrame)) - float64(noteFullHeight)
+		var noteDisplayedHeight float64
+		if noteY+noteFullHeight > maxRange {
+			noteDisplayedHeight = maxRange - noteY
+		} else {
+			noteDisplayedHeight = noteFullHeight
+		}
+
+		frameFallingNotes[i] = append(frameFallingNotes[i], FallingNote{
+			Note:   key,
+			Y:      noteY,
+			Height: noteDisplayedHeight,
+		})
+	}
+}
+
 func setFrameBpmChange(frame int, bpm float64) {
 	frameBpm[frame] = bpm
 }
+
+// 600 3s 180 fps
+// 200 1s 60 fps
+// 3.3 frame
 
 func drawKeyboardKey(dc *gg.Context, x, y float64, isPressed bool) {
 	dc.DrawRectangle(x, y, keyW, keyH)
@@ -143,6 +186,7 @@ func drawKeyboardKey(dc *gg.Context, x, y float64, isPressed bool) {
 	dc.FillPreserve()
 	dc.SetRGBA(0, 0, 0, 1)
 	dc.SetLineWidth(1)
+
 	dc.Stroke()
 
 }
@@ -180,7 +224,6 @@ func drawKeyboardOctave(dc *gg.Context, octaveI int, pressedKeys map[int]bool) {
 
 		keyNote := octaveI*12 + keyId
 		keyX := octaveX + keyW*float64(i)
-		keyY := h - keyH - 20
 		var isPressed = pressedKeys[keyNote]
 		drawKeyboardKey(dc, keyX, keyY, isPressed)
 
@@ -203,8 +246,75 @@ func drawKeyboard(dc *gg.Context, pressedKeys map[int]bool) {
 	}
 }
 
+func isWhiteNote(note int) bool {
+	var keyInOctave = note % 12
+	var blackKeys = map[int]bool{1: true, 3: true, 6: true, 8: true, 10: true}
+	return !blackKeys[keyInOctave]
+}
+
+func countWhiteNotes(note int) int {
+	var whiteNotes = 0
+	for i := 0; i < note; i++ {
+		if isWhiteNote(i) {
+			whiteNotes++
+		}
+	}
+	return whiteNotes
+}
+
+func getNoteByKeyAndOctave(key, octave int) int {
+	return (octave * 12) + key
+}
+func getNoteXPosition(note int) float64 {
+	var isWhite = isWhiteNote(note)
+	var lastWhiteNotePosition = float64(countWhiteNotes(note))*keyW + 20
+
+	if isWhite {
+		return lastWhiteNotePosition
+	}
+
+	return float64(countWhiteNotes(note-1))*keyW + 20 + keyW/1.5
+
+}
+
+func drawFallingNotes(dc *gg.Context, fallingNotes []FallingNote) {
+	for _, n := range fallingNotes {
+		var whiteNote = isWhiteNote(n.Note)
+		var x = getNoteXPosition(n.Note)
+
+		if whiteNote {
+			dc.DrawRoundedRectangle(x, n.Y, keyW, n.Height, 4)
+			dc.SetRGB(1, 0.5, 0)
+		} else {
+			dc.DrawRoundedRectangle(x, n.Y, bKeyW, n.Height, 4)
+			dc.SetRGB(0.8, 0.3, 0)
+		}
+
+		dc.FillPreserve()
+		dc.SetRGBA(0, 0, 0, 1)
+		dc.SetLineWidth(1)
+		dc.Stroke()
+	}
+}
+
+func drawScreenAxes(dc *gg.Context, frame int) {
+	for i := 0; i < 8; i++ {
+		var x = getNoteXPosition(getNoteByKeyAndOctave(0, i))
+		dc.SetRGBA(1, 1, 1, 0.3)
+		dc.SetLineWidth(0.5)
+		dc.DrawLine(x, 0, x, h)
+		dc.Stroke()
+
+		var x2 = getNoteXPosition(getNoteByKeyAndOctave(5, i))
+		dc.SetRGBA(1, 1, 1, 0.1)
+		dc.SetLineWidth(0.5)
+		dc.DrawLine(x2, 0, x2, h)
+		dc.Stroke()
+	}
+}
+
 func prepareScreen(dc *gg.Context) {
-	dc.SetRGB(1, 1, 1)
+	dc.SetRGB(0.18, 0.18, 0.18)
 	dc.DrawRectangle(0, 0, float64(w), float64(h))
 	dc.Fill()
 }
@@ -226,8 +336,11 @@ func createFramesKeyboard() {
 func createFrame(i int) {
 	var dc = gg.NewContext(int(w), int(h))
 	var framePressedKeys = frameToPressedKeys[i]
+	var frameFallingNotes = frameFallingNotes[i]
 	prepareScreen(dc)
+	drawScreenAxes(dc, i)
 	drawKeyboard(dc, framePressedKeys)
+	drawFallingNotes(dc, frameFallingNotes)
 
 	var frStr string
 	if i+1 > 9999 {
@@ -253,11 +366,9 @@ func createFrame(i int) {
 		dc.DrawString(fmt.Sprintf("FRAME %s", frStr), 30, 30)
 	}
 
-	// var onTickTime = float64(onTick) / float64(quarterTicks) * float64(beatTime)
+	// var timeNow = float64(i) / float64(fps)
 
-	var timeNow = float64(i) / float64(fps)
-
-	dc.DrawString(fmt.Sprintf("Time %.2f", timeNow), 160, 30)
+	// dc.DrawString(fmt.Sprintf("Time %.2f", timeNow), 160, 30)
 	// dc.DrawString(fmt.Sprintf("Bpm %d", lastBpm), 320, 30)
 
 	dc.SavePNG(fmt.Sprintf("frames/fr%s.png", frStr))
@@ -357,8 +468,7 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 			var onTickFrame = math.Ceil(onTickTime * float64(fps))
 			var offTickFrame = math.Floor(offTickTime * float64(fps))
 
-			setFrameAction(int(onTickFrame), note, true)
-			setFrameAction(int(offTickFrame), note, false)
+			setNoteAction(note, int(onTickFrame), int(offTickFrame))
 		}
 
 		var trackTimeSeconds = getTickTime(track.Time, quarterNoteTicks)
@@ -369,6 +479,7 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 		musicTime = 50
 	}
 }
+
 func convertMidiToMp3(midiFilePath string) string {
 	var outputMp3Path = midiFilePath + ".wav"
 	timidityCmdArgs := []string{
