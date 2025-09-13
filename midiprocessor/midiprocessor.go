@@ -27,19 +27,36 @@ type Color struct {
 	B float64
 }
 
+type ScreenResolution [2]float64
+
 var orangeColor = Color{1, 0.5, 0}
 var greenColor = Color{0.2, 1, 0.2}
 var blueColor = Color{0.5, 0.85, 1}
+var yellowColor = Color{0.8, 0.6, 0.05}
+var greyColor = Color{0.5, 0.5, 0.5}
+var pinkColor = Color{1, 0.6, 0.7}
+
+var colors = []Color{orangeColor, greenColor, blueColor, greyColor, greyColor}
+
+var resolution1080p = ScreenResolution{1920, 1080}
+var resolution720p = ScreenResolution{1280, 720}
+var resolution480p = ScreenResolution{854, 480}
+var resolution360p = ScreenResolution{640, 360}
 
 var defaultColor = blueColor
+var defaultResolution = resolution720p
 
 func getDarkerShade(c Color) Color {
-	var d = 0.65
+	var d = 0.7
 	return Color{c.R * d, c.G * d, c.B * d}
 }
 
 func setRGBColor(dc *gg.Context, c Color) {
 	dc.SetRGB(c.R, c.G, c.B)
+}
+
+func getColor(i int) Color {
+	return colors[i%len(colors)]
 }
 
 type Track struct {
@@ -73,19 +90,25 @@ type FallingNote struct {
 	Note   int
 	Y      float64
 	Height float64
+	Track  int
 }
 
-var w float64 = 1280
-var h float64 = 720
+type PlayingNote struct {
+	Active bool
+	Track  int
+}
+
+var w float64 = defaultResolution[0]
+var h float64 = defaultResolution[1]
 var octavesDisplayed = 7
 var whiteKeysShown = 7 * octavesDisplayed
 var keyW float64 = (w - 40) / float64(whiteKeysShown)
 var keyH float64 = keyW * 6
 var bKeyW float64 = keyW / 1.7
 var bKeyH float64 = keyH / 1.6
-var pressedKeys = map[int]bool{}
-var frameToPressedKeys = map[int]map[int]bool{}
-var frameAction = map[int]map[int]bool{}
+var pressedKeys = map[int]PlayingNote{}
+var frameToPressedKeys = map[int]map[int]PlayingNote{}
+var frameAction = map[int]map[int]PlayingNote{}
 var frameFallingNotes = map[int][]FallingNote{}
 var frameBpm = map[int]float64{}
 var fps = 60
@@ -95,10 +118,10 @@ var startDelaySec float64 = 3
 
 const DEBUG = false
 
-func updateFrameKeys(actions map[int]bool) {
+func updateFrameKeys(actions map[int]PlayingNote) {
 	for m, v := range actions {
-		if v {
-			pressedKeys[m] = true
+		if v.Active {
+			pressedKeys[m] = v
 		} else {
 			delete(pressedKeys, m)
 		}
@@ -110,15 +133,6 @@ var tickBpm = map[int]float64{}
 func setTickBpm(tick int, bpm float64) {
 	tickBpm[tick] = bpm
 }
-
-//
-//  3800
-// map[int]int {
-// 0: 120,
-// 3600: 160,
-// }
-
-// quarterTicks 100
 
 func getTickTime(tick int, quarterNoteTicks int) float64 {
 
@@ -151,16 +165,16 @@ func getTickTime(tick int, quarterNoteTicks int) float64 {
 	return accumulatedTime + startDelaySec
 }
 
-func setFrameAction(frame int, key int, isPressed bool) {
+func setFrameAction(frame int, key int, isPressed bool, trackIndex int) {
 	if _, exists := frameAction[frame]; !exists {
-		frameAction[frame] = map[int]bool{}
+		frameAction[frame] = map[int]PlayingNote{}
 	}
-	frameAction[frame][key] = isPressed
+	frameAction[frame][key] = PlayingNote{Active: isPressed, Track: trackIndex}
 }
 
-func setNoteAction(key int, onTickFrame, offTickFrame int) {
-	setFrameAction(onTickFrame, key, true)
-	setFrameAction(offTickFrame, key, false)
+func setNoteAction(key, onTickFrame, offTickFrame, trackIndex int) {
+	setFrameAction(onTickFrame, key, true, trackIndex)
+	setFrameAction(offTickFrame, key, false, trackIndex)
 
 	var startRainingNoteFrame = onTickFrame - (3 * fps)
 
@@ -173,7 +187,11 @@ func setNoteAction(key int, onTickFrame, offTickFrame int) {
 			frameFallingNotes[i] = []FallingNote{}
 		}
 
+		var minDisplayedHeight = h * 0.0208
 		var noteFullHeight float64 = (float64(offTickFrame) - float64(onTickFrame)) * rangePerFrame
+		if noteFullHeight < minDisplayedHeight {
+			noteFullHeight = minDisplayedHeight
+		}
 		var noteY = (rangePerFrame * float64(relativeFrame)) - float64(noteFullHeight)
 		var noteDisplayedHeight float64
 		if noteY+noteFullHeight > maxRange {
@@ -186,6 +204,7 @@ func setNoteAction(key int, onTickFrame, offTickFrame int) {
 			Note:   key,
 			Y:      noteY,
 			Height: noteDisplayedHeight,
+			Track:  trackIndex,
 		})
 	}
 }
@@ -194,15 +213,11 @@ func setFrameBpmChange(frame int, bpm float64) {
 	frameBpm[frame] = bpm
 }
 
-// 600 3s 180 fps
-// 200 1s 60 fps
-// 3.3 frame
-
-func drawKeyboardKey(dc *gg.Context, x, y float64, isPressed bool) {
+func drawKeyboardKey(dc *gg.Context, x, y float64, n PlayingNote) {
 	dc.DrawRectangle(x, y, keyW, keyH)
 
-	if isPressed {
-		setRGBColor(dc, defaultColor)
+	if n.Active {
+		setRGBColor(dc, getColor(n.Track))
 	} else {
 		dc.SetRGB(1, 1, 1)
 	}
@@ -214,12 +229,12 @@ func drawKeyboardKey(dc *gg.Context, x, y float64, isPressed bool) {
 
 }
 
-func drawKeyboardBlackKey(dc *gg.Context, x, y float64, isPressed bool) {
+func drawKeyboardBlackKey(dc *gg.Context, x, y float64, n PlayingNote) {
 	x = x + keyW/1.5
 	dc.DrawRectangle(x, y, bKeyW, bKeyH)
 
-	if isPressed {
-		setRGBColor(dc, getDarkerShade(defaultColor))
+	if n.Active {
+		setRGBColor(dc, getDarkerShade(getColor(n.Track)))
 	} else {
 		dc.SetRGB(0.13, 0.13, 0.13)
 	}
@@ -228,10 +243,9 @@ func drawKeyboardBlackKey(dc *gg.Context, x, y float64, isPressed bool) {
 	dc.SetRGBA(0, 0, 0, 1)
 	dc.SetLineWidth(1)
 	dc.Stroke()
-
 }
 
-func drawKeyboardOctave(dc *gg.Context, octaveI int, pressedKeys map[int]bool) {
+func drawKeyboardOctave(dc *gg.Context, octaveI int, pressedKeys map[int]PlayingNote) {
 
 	var whiteKeysWithBlackKeys = [][]float64{}
 	var octaveX = float64(octaveI)*keyW*7 + 20
@@ -263,7 +277,7 @@ func drawKeyboardOctave(dc *gg.Context, octaveI int, pressedKeys map[int]bool) {
 	}
 }
 
-func drawKeyboard(dc *gg.Context, pressedKeys map[int]bool) {
+func drawKeyboard(dc *gg.Context, pressedKeys map[int]PlayingNote) {
 	for i := 0; i < octavesDisplayed; i++ {
 		drawKeyboardOctave(dc, i, pressedKeys)
 	}
@@ -304,13 +318,13 @@ func drawFallingNotes(dc *gg.Context, fallingNotes []FallingNote) {
 	for _, n := range fallingNotes {
 		var whiteNote = isWhiteNote(n.Note)
 		var x = getNoteXPosition(n.Note)
-
+		var radius float64 = 6
 		if whiteNote {
-			dc.DrawRoundedRectangle(x, n.Y, keyW, n.Height, 4)
-			setRGBColor(dc, defaultColor)
+			dc.DrawRoundedRectangle(x, n.Y, keyW, n.Height, radius)
+			setRGBColor(dc, getColor(n.Track))
 		} else {
-			dc.DrawRoundedRectangle(x, n.Y, bKeyW, n.Height, 4)
-			setRGBColor(dc, getDarkerShade(defaultColor))
+			dc.DrawRoundedRectangle(x, n.Y, bKeyW, n.Height, radius)
+			setRGBColor(dc, getDarkerShade(getColor(n.Track)))
 		}
 
 		dc.FillPreserve()
@@ -358,13 +372,13 @@ func drawCNotesNotation(dc *gg.Context) {
 
 func prepareScreen(dc *gg.Context) {
 	dc.SetRGB(0.17, 0.17, 0.17)
-	dc.DrawRectangle(0, 0, float64(w), float64(h))
+	dc.DrawRectangle(0, 0, w, h)
 	dc.Fill()
 }
 
 func createFramesKeyboard() {
 	for i := 0; i < fps*int(math.Round(musicTime)); i++ {
-		var framePressedKeys = map[int]bool{}
+		var framePressedKeys = map[int]PlayingNote{}
 		if v, exists := frameAction[i]; exists {
 			updateFrameKeys(v)
 		}
@@ -511,7 +525,7 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 		}
 	}
 
-	for _, track := range midiData.Tracks {
+	for trackIndex, track := range midiData.Tracks {
 		for _, event := range track.Events {
 			var note = event.Note
 			if note == 0 {
@@ -532,13 +546,14 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 			var onTickFrame = math.Ceil(onTickTime * float64(fps))
 			var offTickFrame = math.Floor(offTickTime * float64(fps))
 
-			setNoteAction(note, int(onTickFrame), int(offTickFrame))
+			setNoteAction(note, int(onTickFrame), int(offTickFrame), trackIndex)
 		}
 
 		var trackTimeSeconds = getTickTime(track.Time, quarterNoteTicks)
 		if trackTimeSeconds > musicTime {
 			musicTime = trackTimeSeconds
 		}
+		musicTime = 90
 	}
 }
 
@@ -594,9 +609,11 @@ func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath
 }
 
 func Generate() {
-	var midiFile = "minuetg.mid"
+	// var midiFile = "minuetg.mid"
 	// var midiFile = "Dance in E Minor - test_5_min.mid"
-	// var midiFile = "Hungarian Rhapsody No. 2 in C# Minor.mid"
+	var midiFile = "Hungarian Rhapsody No. 2 in C# Minor.mid"
+	// var midiFile = "mz_331_3.mid"
+	// var midiFile = "air-from-orchestral-suite-no-3-bwv-1068-in-d-major-bach.mid"
 
 	removeFrames()
 
