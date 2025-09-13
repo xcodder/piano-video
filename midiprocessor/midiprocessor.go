@@ -21,6 +21,27 @@ import (
 	"github.com/fogleman/gg"
 )
 
+type Color struct {
+	R float64
+	G float64
+	B float64
+}
+
+var orangeColor = Color{1, 0.5, 0}
+var greenColor = Color{0.2, 1, 0.2}
+var blueColor = Color{0.5, 0.85, 1}
+
+var defaultColor = blueColor
+
+func getDarkerShade(c Color) Color {
+	var d = 0.65
+	return Color{c.R * d, c.G * d, c.B * d}
+}
+
+func setRGBColor(dc *gg.Context, c Color) {
+	dc.SetRGB(c.R, c.G, c.B)
+}
+
 type Track struct {
 	Events []Event
 	Time   int
@@ -181,7 +202,7 @@ func drawKeyboardKey(dc *gg.Context, x, y float64, isPressed bool) {
 	dc.DrawRectangle(x, y, keyW, keyH)
 
 	if isPressed {
-		dc.SetRGB(1, 0.5, 0)
+		setRGBColor(dc, defaultColor)
 	} else {
 		dc.SetRGB(1, 1, 1)
 	}
@@ -198,7 +219,7 @@ func drawKeyboardBlackKey(dc *gg.Context, x, y float64, isPressed bool) {
 	dc.DrawRectangle(x, y, bKeyW, bKeyH)
 
 	if isPressed {
-		dc.SetRGB(0.8, 0.3, 0)
+		setRGBColor(dc, getDarkerShade(defaultColor))
 	} else {
 		dc.SetRGB(0.13, 0.13, 0.13)
 	}
@@ -286,10 +307,10 @@ func drawFallingNotes(dc *gg.Context, fallingNotes []FallingNote) {
 
 		if whiteNote {
 			dc.DrawRoundedRectangle(x, n.Y, keyW, n.Height, 4)
-			dc.SetRGB(1, 0.5, 0)
+			setRGBColor(dc, defaultColor)
 		} else {
 			dc.DrawRoundedRectangle(x, n.Y, bKeyW, n.Height, 4)
-			dc.SetRGB(0.8, 0.3, 0)
+			setRGBColor(dc, getDarkerShade(defaultColor))
 		}
 
 		dc.FillPreserve()
@@ -536,8 +557,6 @@ func convertMidiToMp3(midiFilePath string) string {
 		return ""
 	}
 
-	fmt.Println("Midi converted to mp3 successfully!")
-
 	return outputMp3Path
 }
 
@@ -575,9 +594,9 @@ func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath
 }
 
 func Generate() {
-	// var midiFile = "minuetg.mid"
+	var midiFile = "minuetg.mid"
 	// var midiFile = "Dance in E Minor - test_5_min.mid"
-	var midiFile = "Hungarian Rhapsody No. 2 in C# Minor.mid"
+	// var midiFile = "Hungarian Rhapsody No. 2 in C# Minor.mid"
 
 	removeFrames()
 
