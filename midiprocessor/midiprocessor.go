@@ -54,8 +54,8 @@ type FallingNote struct {
 	Height float64
 }
 
-var w float64 = 1920
-var h float64 = 1080
+var w float64 = 1280
+var h float64 = 720
 var octavesDisplayed = 7
 var whiteKeysShown = 7 * octavesDisplayed
 var keyW float64 = (w - 40) / float64(whiteKeysShown)
@@ -321,7 +321,7 @@ func drawCNotesNotation(dc *gg.Context) {
 		log.Fatal(err)
 	}
 
-	face := truetype.NewFace(font, &truetype.Options{Size: 16})
+	face := truetype.NewFace(font, &truetype.Options{Size: keyW / 2})
 
 	dc.SetFontFace(face)
 	for i := 0; i < octavesDisplayed; i++ {
@@ -331,7 +331,7 @@ func drawCNotesNotation(dc *gg.Context) {
 			dc.SetRGBA(0, 0, 0, 0.5)
 		}
 		var x = getNoteXPosition(getNoteByKeyAndOctave(0, i))
-		dc.DrawString(fmt.Sprintf("C%d", i+1), (x + 7), h-10)
+		dc.DrawString(fmt.Sprintf("C%d", i+1), (x + keyW/6), h-10)
 	}
 }
 
@@ -416,7 +416,7 @@ func createFrames() {
 			defer wg.Done()
 			createFrame(dc, i)
 			f := finishedFrames.Add(1)
-			if int(f)%(fps*10) == 0 {
+			if int(f)%(fps*30) == 0 {
 				fmt.Printf("Finished frames: %d/%d\tavg time per frame: %.4f\n", f, totalFrames, time.Since(startTime).Seconds()/float64(f))
 			}
 			<-sem
@@ -429,16 +429,24 @@ func createFrames() {
 
 func removeFrames() {
 	var wg sync.WaitGroup
+	const maxWorkers = 100
+	sem := make(chan struct{}, maxWorkers)
+
 	files, err := filepath.Glob("frames/fr*.png")
 	if err != nil {
 		log.Fatal(err)
 	}
 	for _, f := range files {
-		wg.Go(func() {
+		wg.Add(1)
+		sem <- struct{}{}
+
+		go func(f string) {
 			if err := os.Remove(f); err != nil {
 				log.Fatal(err)
 			}
-		})
+			<-sem
+			wg.Done()
+		}(f)
 	}
 
 	wg.Wait()
