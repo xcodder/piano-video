@@ -22,9 +22,15 @@ type Track struct {
 	Events []Event
 	Time   int
 }
+
+type Tempo struct {
+	Bpm    float64 `json:"bpm"`
+	OnTick int     `json:"on_tick"`
+}
 type HeaderMeta struct {
-	QuarterValue int `json:"quarterValue"`
-	TracksNumber int `json:"tracksNumber"`
+	QuarterValue int     `json:"quarterValue"`
+	TracksNumber int     `json:"tracksNumber"`
+	Tempos       []Tempo `json:"tempos"`
 }
 
 type ParsedMidi struct {

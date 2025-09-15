@@ -1,6 +1,7 @@
 package videogenerator
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -405,30 +406,22 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 			skipChannels[channelId] = true
 		}
 	}
-	for _, track := range midiData.Tracks {
-		for _, event := range track.Events {
-			var note = event.Note
-			if note == 0 {
-				if event.Meta.Bpm > 0 {
-					setTickBpm(event.OnTick, event.Meta.Bpm)
-				}
-			}
-		}
+
+	for _, tempo := range midiData.Meta.Tempos {
+		setTickBpm(tempo.OnTick, tempo.Bpm)
+
+		var onTick = tempo.OnTick
+		var onTickTime = getTickTime(onTick, quarterNoteTicks)
+		var onTickFrame = math.Round(onTickTime * float64(fps))
+		setFrameBpmChange(int(onTickFrame), tempo.Bpm)
 	}
 
-	for _, track := range midiData.Tracks {
-		for _, event := range track.Events {
-			var note = event.Note
-			if note == 0 {
-				if event.Meta.Bpm > 0 {
-					var onTick = event.OnTick
-					var onTickTime = getTickTime(onTick, quarterNoteTicks)
-					var onTickFrame = math.Round(onTickTime * float64(fps))
-					setFrameBpmChange(int(onTickFrame), event.Meta.Bpm)
-				}
-			}
-		}
-	}
+	// for _, tempo := range midiData.Meta.Tempos {
+	// 	var onTick = tempo.OnTick
+	// 	var onTickTime = getTickTime(onTick, quarterNoteTicks)
+	// 	var onTickFrame = math.Round(onTickTime * float64(fps))
+	// 	setFrameBpmChange(int(onTickFrame), tempo.Bpm)
+	// }
 
 	for trackIndex, track := range midiData.Tracks {
 		for _, event := range track.Events {
@@ -514,11 +507,9 @@ func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath
 }
 
 func Generate() {
-	var midiFile = "sample-midis/minuetg.mid"
-	// var midiFile = "Dance in E Minor - test_5_min.mid"
-	// var midiFile = "Hungarian Rhapsody No. 2 in C# Minor.mid"
-	// var midiFile = "mz_331_3.mid"
-	// var midiFile = "air-from-orchestral-suite-no-3-bwv-1068-in-d-major-bach.mid"
+	// var midiFile = "sample-midis/minuetg.mid"
+	var midiFile = "sample-midis/Hungarian Rhapsody No. 2 in C# Minor.mid"
+	// var midiFile = "sample-midis/mozart_331_3.mid"
 
 	var midiFileName = filepath.Base(midiFile)
 
@@ -534,8 +525,8 @@ func Generate() {
 		panic(err)
 	}
 
-	// parsedMidiJson, _ := json.Marshal(parsedMidi)
-	// os.WriteFile("./midioutput.json", parsedMidiJson, 0644)
+	parsedMidiJson, _ := json.Marshal(parsedMidi)
+	os.WriteFile("./midioutput.json", parsedMidiJson, 0644)
 
 	outputMp3Path := convertMidiToMp3(midiFile)
 

@@ -16,7 +16,7 @@ var resolution720p = ScreenResolution{1280, 720}
 var resolution480p = ScreenResolution{854, 480}
 var resolution360p = ScreenResolution{640, 360}
 
-var defaultResolution = resolution720p
+var defaultResolution = resolution1080p
 
 var w float64 = defaultResolution[0]
 var h float64 = defaultResolution[1]

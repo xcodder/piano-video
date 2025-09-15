@@ -2,24 +2,17 @@ package midiparser
 
 import (
 	"fmt"
-
-	// "io/ioutil"
 	"log"
 	"os"
 	"strconv"
 )
 
-
 var allChannels = make(map[byte]Channel)
-
-var buffer = make([]byte, 2020)
-
+var buffer = make([]byte, 2000)
 var prependByte, lastStatus byte
 var trackIndex = 0
-
 var allTracks = []Track{}
-
-var headerMeta = HeaderMeta{}
+var headerMeta HeaderMeta
 
 func prepareReadBytes(bytes int) func(f *os.File) int {
 	return func(f *os.File) int {
@@ -39,7 +32,7 @@ func bytesToString(bts []byte) string {
 func readText() func(f *os.File) int {
 	return func(f *os.File) int {
 		len := readBytes(f, 1)[0]
-		bytesToString(readBytes(f, int(len)))
+		bytesToString(readBytes(f, int(len))) // text
 		return int(len) + 1
 	}
 }
@@ -47,8 +40,10 @@ func setBpm(f *os.File) int {
 	readBytes(f, 1) // irrelevant byte
 	bpm := float64(bytesToInt(readBytes(f, 3)))
 	bpm = 60000000 / bpm
-	allTracks[trackIndex].Events = append(allTracks[trackIndex].Events, Event{OnTick: allTracks[trackIndex].Time, Meta: Meta{Bpm: bpm}})
-
+	headerMeta.Tempos = append(headerMeta.Tempos, Tempo{
+		Bpm:    bpm,
+		OnTick: allTracks[trackIndex].Time,
+	})
 	return 4
 }
 func timeSig(f *os.File) int {
@@ -265,7 +260,6 @@ func readEvent(f *os.File) int {
 func readChunk(f *os.File) {
 	buffer = buffer[:4]
 	f.Read(buffer)
-	// chunkId := string(buffer)
 	buffer = buffer[:4]
 	f.Read(buffer)
 	chunkBytes := bytesToInt(buffer)
@@ -279,11 +273,6 @@ func readChunk(f *os.File) {
 }
 
 func ParseFile(f *os.File) (ParsedMidi, error) {
-	// f, err := os.Open(file)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// defer f.Close()
 	readMThd(f)
 	tracksNumber := headerMeta.TracksNumber
 	allTracks = make([]Track, tracksNumber)
@@ -298,6 +287,4 @@ func ParseFile(f *os.File) (ParsedMidi, error) {
 	}
 
 	return parsedMidi, nil
-	// rankingsJSON, _ := json.Marshal(allData)
-	// os.WriteFile("./midioutput.json", rankingsJSON, 0644)
 }
