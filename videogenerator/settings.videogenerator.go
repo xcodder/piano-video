@@ -1,5 +1,7 @@
 package videogenerator
 
+import "fmt"
+
 var colors = []Color{colorOrange, colorGreen, colorBlue, colorGrey, colorGrey}
 
 var defaultResolution = resolution720p
@@ -18,3 +20,8 @@ const DEBUG = false
 const fps = 60
 const startDelaySec float64 = 3
 const fallingNoteBorderRadius float64 = 6
+const framesFolderPath = "_frames"
+const outputFolderPath = "output"
+const midiFilePath = "sample-midis/minuetg.mid"
+
+var outputVideoPath = fmt.Sprintf("%s/%s.mp4", outputFolderPath, getFileNameWithoutExtension(midiFilePath))

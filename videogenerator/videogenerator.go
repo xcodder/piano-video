@@ -1,12 +1,10 @@
 package videogenerator
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -388,10 +386,6 @@ func removeFrames() {
 	wg.Wait()
 }
 
-func removeAudioFile(filePath string) {
-	os.Remove(filePath)
-}
-
 func prepareMidi(midiData midiparser.ParsedMidi) {
 	var quarterNoteTicks = midiData.Meta.QuarterValue
 
@@ -442,97 +436,30 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 	}
 }
 
-func convertMidiToMp3(midiFilePath string) string {
-	var outputMp3Path = midiFilePath + ".wav"
-	timidityCmdArgs := []string{
-		midiFilePath, "-Ow",
-		"--preserve-silence",
-		"-o", outputMp3Path,
-	}
-
-	cmd := exec.Command("timidity", timidityCmdArgs...)
-
-	if err := cmd.Run(); err != nil {
-		fmt.Printf("Error executing timidity command: %v\n", err)
-		return ""
-	}
-
-	return outputMp3Path
-}
-
-func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath string) error {
-
-	cmdArgs := []string{
-		"-framerate", fmt.Sprintf("%d", fps),
-		"-i", framesFolder + "/fr%05d.png",
-		"-itsoffset", fmt.Sprintf("%fs", startDelaySec),
-		"-i", audioFilePath,
-		"-map", "0:v", "-map", "1:a",
-		"-preset", "veryfast",
-		"-c:v", "libx264",
-		"-pix_fmt", "yuv420p",
-		"-vcodec", "libx264",
-		"-tune", "animation",
-		"-y",
-		"-t", fmt.Sprintf("%f", musicTime),
-		outputPath,
-	}
-
-	cmd := exec.Command("ffmpeg", cmdArgs...)
-
-	if err := cmd.Run(); err != nil {
-		var fullCmd string
-		fullCmd += "ffmpeg "
-		for _, v := range cmdArgs {
-			fullCmd += fmt.Sprintf("%s ", v)
-		}
-
-		fmt.Printf("Error executing FFmpeg command: %s; %v\n", fullCmd, err)
-		return err
-	}
-
-	return nil
-}
-
 func Generate() {
-	var midiFile = "sample-midis/minuetg.mid"
-	// var midiFile = "sample-midis/Bach JS Toccata Fuge D Minor.mid"
-	// var midiFile = "sample-midis/mozart_331_3.mid"
-
-	var midiFileName = filepath.Base(midiFile)
-
-	f, err := os.Open("./" + midiFile)
+	executionStartTime := time.Now()
+	f, err := os.Open(midiFilePath)
 	if err != nil {
 		panic(err)
 	}
 	defer f.Close()
 
-	executionStartTime := time.Now()
 	parsedMidi, err := midiparser.ParseFile(f)
 	if err != nil {
 		panic(err)
 	}
 
-	parsedMidiJson, _ := json.Marshal(parsedMidi)
-	os.WriteFile("./midioutput.json", parsedMidiJson, 0644)
+	outputMp3Path := convertMidiToMp3(midiFilePath)
 
-	outputMp3Path := convertMidiToMp3(midiFile)
-
+	defer removeAudioFile(outputMp3Path)
 	prepareMidi(parsedMidi)
-
 	createFramesKeyboard()
-
 	createFrames()
+	defer removeFrames()
 
-	var outputVideoPath = fmt.Sprintf("output/%s.%d.mp4", midiFileName, fps)
-	err = createVideoFromFrames("_frames", outputMp3Path, outputVideoPath)
+	err = createVideoFromFrames(framesFolderPath, outputMp3Path, outputVideoPath)
 	if err != nil {
-		log.Fatal("Error: ffmpeg could not create video")
-	}
-
-	if !DEBUG {
-		removeFrames()
-		removeAudioFile(outputMp3Path)
+		log.Fatal(err)
 	}
 
 	executionTime := time.Since(executionStartTime)

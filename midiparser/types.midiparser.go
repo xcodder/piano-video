@@ -5,17 +5,12 @@ type Event struct {
 	OnTick  int  `json:"on_tick"`
 	Offtick int  `json:"off_tick"`
 	Channel byte `json:"channel"`
-	Meta    Meta `json:"meta"`
 }
 
 type Channel struct {
 	Name       string `json:"name"`
 	Instrument string `json:"instrument"`
 	Patch      byte   `json:"patch"`
-}
-
-type Meta struct {
-	Bpm float64 `json:"bpm"`
 }
 
 type Track struct {
