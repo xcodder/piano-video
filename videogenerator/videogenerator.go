@@ -239,7 +239,6 @@ func Generate() {
 	}
 
 	outputMp3Path := convertMidiToMp3(midiFilePath)
-
 	defer removeAudioFile(outputMp3Path)
 	prepareMidi(parsedMidi)
 	createFramesKeyboard()
@@ -252,7 +251,5 @@ func Generate() {
 	}
 
 	executionTime := time.Since(executionStartTime)
-
 	fmt.Printf("Execution time: %f seconds\nVideo Generated: %s\n", executionTime.Seconds(), outputVideoPath)
-
 }
