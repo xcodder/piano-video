@@ -1,9 +1,10 @@
 package main
 
 import (
-	"videos2/videogenerator"
+	"piano-video/videogenerator"
 )
 
 func main() {
-	videogenerator.Generate()
+	const midiFilePath = "sample-midis/minuetg.mid"
+	videogenerator.GenerateVideo(midiFilePath)
 }

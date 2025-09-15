@@ -10,7 +10,7 @@ import (
 	"sort"
 	"sync"
 	"time"
-	"videos2/midiparser"
+	"piano-video/midiparser"
 )
 
 func updateFrameKeys(actions map[int]PlayingNote) {
@@ -225,7 +225,7 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 	}
 }
 
-func Generate() {
+func GenerateVideo(midiFilePath string) {
 	executionStartTime := time.Now()
 	f, err := os.Open(midiFilePath)
 	if err != nil {
@@ -245,6 +245,7 @@ func Generate() {
 	createFrames()
 	defer removeFrames()
 
+	var outputVideoPath = getOutputVideoPath(midiFilePath)
 	err = createVideoFromFrames(framesFolderPath, outputMp3Path, outputVideoPath)
 	if err != nil {
 		log.Fatal(err)

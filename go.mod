@@ -1,4 +1,4 @@
-module videos2
+module piano-video
 
 go 1.25.0
 
