@@ -9,7 +9,19 @@ import (
 	"strconv"
 )
 
-func readMoreBytes(bytes int) func(f *os.File) int {
+
+var allChannels = make(map[byte]Channel)
+
+var buffer = make([]byte, 2020)
+
+var prependByte, lastStatus byte
+var trackIndex = 0
+
+var allTracks = []Track{}
+
+var headerMeta = HeaderMeta{}
+
+func prepareReadBytes(bytes int) func(f *os.File) int {
 	return func(f *os.File) int {
 		readBytes(f, bytes)
 		return bytes
@@ -24,16 +36,10 @@ func bytesToString(bts []byte) string {
 	return str
 }
 
-type Meta struct {
-	Bpm float64 `json:"bpm"`
-}
-
 func readText() func(f *os.File) int {
 	return func(f *os.File) int {
 		len := readBytes(f, 1)[0]
 		bytesToString(readBytes(f, int(len)))
-		// allChannels
-		// fmt.Println(name)
 		return int(len) + 1
 	}
 }
@@ -41,21 +47,18 @@ func setBpm(f *os.File) int {
 	readBytes(f, 1) // irrelevant byte
 	bpm := float64(bytesToInt(readBytes(f, 3)))
 	bpm = 60000000 / bpm
-	// fmt.Println("BPM value: ", bpm, " On track: ", trackIndex)
 	allTracks[trackIndex].Events = append(allTracks[trackIndex].Events, Event{OnTick: allTracks[trackIndex].Time, Meta: Meta{Bpm: bpm}})
 
 	return 4
 }
 func timeSig(f *os.File) int {
 	readBytes(f, 1) // irrelevant byte
-	tSig := readBytes(f, 4)
-	fmt.Println("Time Signature: ", tSig)
+	readBytes(f, 4) // time signature
 	return 5
 }
 func offset(f *os.File) int {
 	readBytes(f, 1) // irrelevant byte
-	offs := readBytes(f, 5)
-	fmt.Println("Offset: ", offs)
+	readBytes(f, 5) // offset
 	return 6
 }
 func midiChannelPrefix(f *os.File) int {
@@ -70,7 +73,7 @@ func midiPort(f *os.File) int {
 }
 
 var FFevents = map[byte]func(f *os.File) int{
-	0:   readMoreBytes(1),
+	0:   prepareReadBytes(1),
 	1:   readText(),
 	2:   readText(),
 	3:   readText(),
@@ -82,28 +85,12 @@ var FFevents = map[byte]func(f *os.File) int{
 	9:   readText(),
 	32:  midiChannelPrefix,
 	33:  midiPort,
-	47:  readMoreBytes(1),
+	47:  prepareReadBytes(1),
 	81:  setBpm,
 	84:  offset,
 	88:  timeSig,
-	89:  readMoreBytes(3),
+	89:  prepareReadBytes(3),
 	127: readText(),
-}
-
-type Event struct {
-	Note    int  `json:"note"`
-	OnTick  int  `json:"on_tick"`
-	Offtick int  `json:"off_tick"`
-	Channel byte `json:"channel"`
-	Meta    Meta `json:"meta"`
-}
-
-var allChannels = make(map[byte]Channel)
-
-type Channel struct {
-	Name       string `json:"name"`
-	Instrument string `json:"instrument"`
-	Patch      byte   `json:"patch"`
 }
 
 func statusf0(f *os.File, channel byte) int {
@@ -181,7 +168,6 @@ var events = map[byte]func(f *os.File, channel byte) int{
 		return c
 	},
 }
-var buffer = make([]byte, 2020)
 
 func readMThd(f *os.File) {
 	readBytes(f, 8)
@@ -193,8 +179,6 @@ func readMThd(f *os.File) {
 	headerMeta.TracksNumber = tracksNumber
 	headerMeta.QuarterValue = bytesToInt(readBytes(f, 2))
 }
-
-var prependByte, lastStatus byte
 
 func readBytes(f *os.File, bytes int) []byte {
 	tmp := make([]byte, bytes)
@@ -293,22 +277,6 @@ func readChunk(f *os.File) {
 		log.Fatal("No match. Must be a bug or corrupt midi: Read should Be: ", bytesRead, "==", chunkBytes)
 	}
 }
-
-var trackIndex = 0
-
-type Track struct {
-	Events []Event
-	Time   int
-}
-
-var allTracks = []Track{}
-
-type HeaderMeta struct {
-	QuarterValue int `json:"quarterValue"`
-	TracksNumber int `json:"tracksNumber"`
-}
-
-var headerMeta = HeaderMeta{}
 
 func ParseFile(f *os.File) (ParsedMidi, error) {
 	// f, err := os.Open(file)

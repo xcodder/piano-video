@@ -1,7 +1,6 @@
-package midiprocessor
+package videogenerator
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -21,33 +20,8 @@ import (
 	"github.com/fogleman/gg"
 )
 
-type Color struct {
-	R float64
-	G float64
-	B float64
-}
-
-type ScreenResolution [2]float64
-
-var orangeColor = Color{1, 0.5, 0}
-var greenColor = Color{0.2, 1, 0.2}
-var blueColor = Color{0.5, 0.85, 1}
-var yellowColor = Color{0.8, 0.6, 0.05}
-var greyColor = Color{0.5, 0.5, 0.5}
-var pinkColor = Color{1, 0.6, 0.7}
-
-var colors = []Color{orangeColor, greenColor, blueColor, greyColor, greyColor}
-
-var resolution1080p = ScreenResolution{1920, 1080}
-var resolution720p = ScreenResolution{1280, 720}
-var resolution480p = ScreenResolution{854, 480}
-var resolution360p = ScreenResolution{640, 360}
-
-var defaultColor = blueColor
-var defaultResolution = resolution720p
-
 func getDarkerShade(c Color) Color {
-	var d = 0.7
+	var d = 0.8
 	return Color{c.R * d, c.G * d, c.B * d}
 }
 
@@ -58,65 +32,6 @@ func setRGBColor(dc *gg.Context, c Color) {
 func getColor(i int) Color {
 	return colors[i%len(colors)]
 }
-
-type Track struct {
-	Events []Event
-	Time   int
-}
-
-type Channel struct {
-	Name       string `json:"name"`
-	Instrument string `json:"instrument"`
-	Patch      byte   `json:"patch"`
-}
-
-type Meta struct {
-	Bpm int `json:"bpm"`
-}
-
-type Event struct {
-	Note    int  `json:"note"`
-	OnTick  int  `json:"on_tick"`
-	Offtick int  `json:"off_tick"`
-	Channel byte `json:"channel"`
-	Meta    Meta `json:"meta"`
-}
-
-type HeaderMeta struct {
-	QuarterValue int `json:"quarterValue"`
-}
-
-type FallingNote struct {
-	Note   int
-	Y      float64
-	Height float64
-	Track  int
-}
-
-type PlayingNote struct {
-	Active bool
-	Track  int
-}
-
-var w float64 = defaultResolution[0]
-var h float64 = defaultResolution[1]
-var octavesDisplayed = 7
-var whiteKeysShown = 7 * octavesDisplayed
-var keyW float64 = (w - 40) / float64(whiteKeysShown)
-var keyH float64 = keyW * 6
-var bKeyW float64 = keyW / 1.7
-var bKeyH float64 = keyH / 1.6
-var pressedKeys = map[int]PlayingNote{}
-var frameToPressedKeys = map[int]map[int]PlayingNote{}
-var frameAction = map[int]map[int]PlayingNote{}
-var frameFallingNotes = map[int][]FallingNote{}
-var frameBpm = map[int]float64{}
-var fps = 60
-var keyY = h - keyH
-var musicTime float64
-var startDelaySec float64 = 3
-
-const DEBUG = false
 
 func updateFrameKeys(actions map[int]PlayingNote) {
 	for m, v := range actions {
@@ -176,11 +91,11 @@ func setNoteAction(key, onTickFrame, offTickFrame, trackIndex int) {
 	setFrameAction(onTickFrame, key, true, trackIndex)
 	setFrameAction(offTickFrame, key, false, trackIndex)
 
-	var startRainingNoteFrame = onTickFrame - (3 * fps)
+	var startRainingNoteFrame = int(float64(onTickFrame) - (startDelaySec * float64(fps)))
 
 	for i := startRainingNoteFrame; i < offTickFrame; i++ {
 		var maxRange = keyY
-		var rangePerFrame = float64(maxRange) / float64(3*fps)
+		var rangePerFrame = float64(maxRange) / float64(startDelaySec*float64(fps))
 		var relativeFrame = i - startRainingNoteFrame
 
 		if _, exists := frameFallingNotes[i]; !exists {
@@ -377,7 +292,8 @@ func prepareScreen(dc *gg.Context) {
 }
 
 func createFramesKeyboard() {
-	for i := 0; i < fps*int(math.Round(musicTime)); i++ {
+	var totalFrames = fps * int(math.Round(musicTime))
+	for i := 0; i < totalFrames; i++ {
 		var framePressedKeys = map[int]PlayingNote{}
 		if v, exists := frameAction[i]; exists {
 			updateFrameKeys(v)
@@ -399,18 +315,7 @@ func createFrame(dc *gg.Context, i int) {
 	drawCNotesNotation(dc)
 	drawFallingNotes(dc, frameFallingNotes)
 
-	var frStr string
-	if i+1 > 9999 {
-		frStr = fmt.Sprintf("%d", i+1)
-	} else if i+1 > 999 {
-		frStr = fmt.Sprintf("0%d", i+1)
-	} else if i+1 > 99 {
-		frStr = fmt.Sprintf("00%d", i+1)
-	} else if i+1 > 9 {
-		frStr = fmt.Sprintf("000%d", i+1)
-	} else {
-		frStr = fmt.Sprintf("0000%d", i+1)
-	}
+	var frStr = fmt.Sprintf("%05d", i+1)
 
 	if DEBUG == true {
 		font, err := truetype.Parse(goregular.TTF)
@@ -424,7 +329,7 @@ func createFrame(dc *gg.Context, i int) {
 		dc.DrawString(fmt.Sprintf("FRAME %s", frStr), 30, 30)
 	}
 
-	dc.SavePNG(fmt.Sprintf("frames/fr%s.png", frStr))
+	dc.SavePNG(fmt.Sprintf("_frames/fr%s.png", frStr))
 }
 func createFrames() {
 
@@ -467,7 +372,7 @@ func removeFrames() {
 	const maxWorkers = 100
 	sem := make(chan struct{}, maxWorkers)
 
-	files, err := filepath.Glob("frames/fr*.png")
+	files, err := filepath.Glob("_frames/fr*.png")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -553,7 +458,6 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 		if trackTimeSeconds > musicTime {
 			musicTime = trackTimeSeconds
 		}
-		musicTime = 90
 	}
 }
 
@@ -596,12 +500,13 @@ func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath
 	cmd := exec.Command("ffmpeg", cmdArgs...)
 
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("ffmpeg ")
+		var fullCmd string
+		fullCmd += "ffmpeg "
 		for _, v := range cmdArgs {
-			fmt.Printf("%s ", v)
+			fullCmd += fmt.Sprintf("%s ", v)
 		}
 
-		fmt.Printf("Error executing FFmpeg command: %v\n", err)
+		fmt.Printf("Error executing FFmpeg command: %s; %v\n", fullCmd, err)
 		return err
 	}
 
@@ -609,13 +514,13 @@ func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath
 }
 
 func Generate() {
-	// var midiFile = "minuetg.mid"
+	var midiFile = "sample-midis/minuetg.mid"
 	// var midiFile = "Dance in E Minor - test_5_min.mid"
-	var midiFile = "Hungarian Rhapsody No. 2 in C# Minor.mid"
+	// var midiFile = "Hungarian Rhapsody No. 2 in C# Minor.mid"
 	// var midiFile = "mz_331_3.mid"
 	// var midiFile = "air-from-orchestral-suite-no-3-bwv-1068-in-d-major-bach.mid"
 
-	removeFrames()
+	var midiFileName = filepath.Base(midiFile)
 
 	f, err := os.Open("./" + midiFile)
 	if err != nil {
@@ -629,35 +534,30 @@ func Generate() {
 		panic(err)
 	}
 
-	rankingsJSON, _ := json.Marshal(parsedMidi)
-	os.WriteFile("./midioutput.json", rankingsJSON, 0644)
+	// parsedMidiJson, _ := json.Marshal(parsedMidi)
+	// os.WriteFile("./midioutput.json", parsedMidiJson, 0644)
 
-	fmt.Println("E1 ", time.Since(executionStartTime).Seconds())
+	outputMp3Path := convertMidiToMp3(midiFile)
+
 	prepareMidi(parsedMidi)
 
 	createFramesKeyboard()
 
-	fmt.Println("E2 ", time.Since(executionStartTime).Seconds())
 	createFrames()
 
-	outputMp3Path := convertMidiToMp3(midiFile)
-	fmt.Println("E3 ", time.Since(executionStartTime).Seconds())
-
-	err = createVideoFromFrames("frames", outputMp3Path, "output/"+midiFile+"."+fmt.Sprintf("%d", fps)+".mp4")
+	var outputVideoPath = fmt.Sprintf("output/%s.%d.mp4", midiFileName, fps)
+	err = createVideoFromFrames("_frames", outputMp3Path, outputVideoPath)
 	if err != nil {
-		fmt.Println("Error: ffmpeg could not create video")
+		log.Fatal("Error: ffmpeg could not create video")
 	}
 
-	fmt.Println("E4 ", time.Since(executionStartTime).Seconds())
-
-	// removeFrames()
-
-	fmt.Println("E5 ", time.Since(executionStartTime).Seconds())
-
-	// removeAudioFile(outputMp3Path)
+	if !DEBUG {
+		removeFrames()
+		removeAudioFile(outputMp3Path)
+	}
 
 	executionTime := time.Since(executionStartTime)
 
-	fmt.Printf("Execution time: %f seconds\n", executionTime.Seconds())
+	fmt.Printf("Execution time: %f seconds\nVideo Generated: %s\n", executionTime.Seconds(), outputVideoPath)
 
 }
