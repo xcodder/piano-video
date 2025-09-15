@@ -44,14 +44,11 @@ func updateFrameKeys(actions map[int]PlayingNote) {
 	}
 }
 
-var tickBpm = map[int]float64{}
-
 func setTickBpm(tick int, bpm float64) {
 	tickBpm[tick] = bpm
 }
 
 func getTickTime(tick int, quarterNoteTicks int) float64 {
-
 	var orderedBpmTicks = []int{}
 
 	for bpmTick := range tickBpm {
@@ -201,8 +198,7 @@ func drawKeyboard(dc *gg.Context, pressedKeys map[int]PlayingNote) {
 
 func isWhiteNote(note int) bool {
 	var keyInOctave = note % 12
-	var blackKeys = map[int]bool{1: true, 3: true, 6: true, 8: true, 10: true}
-	return !blackKeys[keyInOctave]
+	return !blackKeysInOctave[keyInOctave]
 }
 
 func countWhiteNotes(note int) int {
@@ -234,12 +230,11 @@ func drawFallingNotes(dc *gg.Context, fallingNotes []FallingNote) {
 	for _, n := range fallingNotes {
 		var whiteNote = isWhiteNote(n.Note)
 		var x = getNoteXPosition(n.Note)
-		var radius float64 = 6
 		if whiteNote {
-			dc.DrawRoundedRectangle(x, n.Y, keyW, n.Height, radius)
+			dc.DrawRoundedRectangle(x, n.Y, keyW, n.Height, fallingNoteBorderRadius)
 			setRGBColor(dc, getColor(n.Track))
 		} else {
-			dc.DrawRoundedRectangle(x, n.Y, bKeyW, n.Height, radius)
+			dc.DrawRoundedRectangle(x, n.Y, bKeyW, n.Height, fallingNoteBorderRadius)
 			setRGBColor(dc, getDarkerShade(getColor(n.Track)))
 		}
 
@@ -416,13 +411,6 @@ func prepareMidi(midiData midiparser.ParsedMidi) {
 		setFrameBpmChange(int(onTickFrame), tempo.Bpm)
 	}
 
-	// for _, tempo := range midiData.Meta.Tempos {
-	// 	var onTick = tempo.OnTick
-	// 	var onTickTime = getTickTime(onTick, quarterNoteTicks)
-	// 	var onTickFrame = math.Round(onTickTime * float64(fps))
-	// 	setFrameBpmChange(int(onTickFrame), tempo.Bpm)
-	// }
-
 	for trackIndex, track := range midiData.Tracks {
 		for _, event := range track.Events {
 			var note = event.Note
@@ -507,8 +495,8 @@ func createVideoFromFrames(framesFolder string, audioFilePath string, outputPath
 }
 
 func Generate() {
-	// var midiFile = "sample-midis/minuetg.mid"
-	var midiFile = "sample-midis/Hungarian Rhapsody No. 2 in C# Minor.mid"
+	var midiFile = "sample-midis/minuetg.mid"
+	// var midiFile = "sample-midis/Bach JS Toccata Fuge D Minor.mid"
 	// var midiFile = "sample-midis/mozart_331_3.mid"
 
 	var midiFileName = filepath.Base(midiFile)
