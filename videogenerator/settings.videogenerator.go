@@ -4,7 +4,7 @@ import "fmt"
 
 var colors = []Color{colorOrange, colorGreen, colorBlue, colorGrey, colorGrey}
 
-var defaultResolution = resolution720p
+var defaultResolution = resolution1080p
 
 var w float64 = defaultResolution[0]
 var h float64 = defaultResolution[1]
